@@ -32,3 +32,6 @@ app_graph = workflow.compile()
 
 
 print("✅ LangGraph 流程圖已成功編譯。")
+
+def create_graph():
+    return workflow

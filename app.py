@@ -1,73 +1,88 @@
-import os
-from flask import Flask, request, jsonify
+# app.py
+
+import uuid
+from flask import Flask, request, jsonify, Response
 from flask_cors import CORS
+from typing import List, Dict
+from langgraph.checkpoint.sqlite import SqliteSaver  # 引入 SqliteSaver
 from apscheduler.schedulers.background import BackgroundScheduler
-from langchain_core.messages import HumanMessage
+from langgraph.checkpoint.mongodb import MongoDBSaver
 
-# --- Local Imports ---
-# 確保 Azure client 在 graph 之前被初始化
-from config import client as azure_client
-# 由於工具需要存取 scheduler，我們在此處初始化
-# 備註：這會形成一個可接受的循環導入 (circular import)，在 Flask 應用中是常見模式。
+from config import client, AZURE_OPENAI_DEPLOYMENT_NAME, MONGODB_URI, MONGODB_DB_NAME, MONGODB_COLLECTION_NAME, tools_for_openai
+from graph.graph import create_graph
+from sql.models.model import init_db  # 引入初始化資料庫的函式
+from graph.tools.db_tools import check_and_remind_orders, tally_and_notify_orders
+
+# --- 初始化 ---
 app = Flask(__name__)
+CORS(app, resources={r"/api/*": {"origins": "*"}})
+
+# 初始化資料庫
+init_db()
+
+# --- 記憶體設定 ---
+# --- 記憶體設定 (替換為 MongoDB) ---
+# 使用 MongoDBSaver 作為記憶體後端
+memory = MongoDBSaver.from_uri(
+    uri=MONGODB_URI,
+    db_name=MONGODB_DB_NAME,
+    collection_name=MONGODB_COLLECTION_NAME
+)
+
+# --- LangGraph App ---
+# 建立帶有記憶體配置的 Graph
+app_graph = create_graph().with_config(checkpointer=memory)
+
+# --- 定時任務 ---
 scheduler = BackgroundScheduler()
-
-# 從新的 db_tools 導入背景任務函式
-# 注意：這些導入必須在 app 和 scheduler 初始化之後
-from graph.tools.db_tools import check_and_remind_tool, tally_and_notify_tool
-
-# 現在再導入 graph，它內部會用到已設定好的工具
-from graph.graph import app_graph
-
-# --- Flask App 設定 ---
-CORS(app)
+scheduler.add_job(check_and_remind_orders, 'interval', minutes=1)
+scheduler.add_job(tally_and_notify_orders, 'interval', minutes=1)
 scheduler.start()
 
-# ==============================================================================
-#  Flask API 端點
-# ==============================================================================
+
+# --- API 端點 ---
 @app.route('/api/agent', methods=['POST'])
 def agent_endpoint():
-    if not azure_client:
-        return jsonify({"error": "Azure OpenAI client not configured. Please check server logs and .env variables."}), 500
-
     data = request.json
-    if not data or "query" not in data:
-        return jsonify({"error": "無效的請求，缺少 'query' 欄位。"}), 400
+    if not data or "input" not in data:
+        return jsonify({"error": "Invalid request, 'input' is required"}), 400
 
-    query = data["query"]
-    # 建立一個包含系統訊息的初始狀態，給予 Agent 更明確的角色和指示
-    system_message = """
-    你是一位智慧美食揪團助理。你的任務是協助使用者完成以下流程：
-    1.  根據需求搜尋餐廳 (`search_restaurants_tool`)。
-    2.  為選定的餐廳建立揪團表單 (`create_group_order_tool`)。
-    3.  將表單通知給指定部門的成員，這會自動設定提醒與統計排程 (`notify_department_and_schedule_tasks_tool`)。
-    請根據對話歷史和使用者最新的請求，有條理地呼叫工具來完成任務。在呼叫工具前，請先確認是否已具備所有必要資訊 (例如，通知部門前必須先有表單連結)。
-    """
-    initial_state = {"messages": [
-        HumanMessage(content=system_message), # 用系統訊息指導 Agent
-        HumanMessage(content=query)
-    ]}
+    user_input = data["input"]
+    # 從前端接收 conversation_id，如果沒有就建立一個新的
+    conversation_id = data.get("conversation_id") or str(uuid.uuid4())
 
-    try:
-        # 執行代理圖
-        final_state = app_graph.invoke(initial_state)
-        last_message_obj = final_state['messages'][-1]
-        final_message_content = ""
+    system_prompt = (
+        "你是一個智慧美食揪團助理。你的工作是協助使用者搜尋餐廳、建立訂餐表單、"
+        "並根據使用者的要求通知相關部門的成員。你必須使用提供的工具來完成這些任務。"
+        "請用繁體中文和使用者溝通。"
+    )
 
-        if hasattr(last_message_obj, 'content') and isinstance(last_message_obj.content, str):
-            final_message_content = last_message_obj.content
-        else:
-            final_message_content = "任務已執行，但沒有文字回覆。"
+    input_data = {"messages": [("system", system_prompt), ("human", user_input)]}
 
-        return jsonify({"result": final_message_content})
-    except Exception as e:
-        import traceback
-        print(f"❌ [Graph執行錯誤] {e}\n{traceback.format_exc()}")
-        return jsonify({"error": f"Agent 執行時發生內部錯誤: {str(e)}"}), 500
+    # 在 config 中傳入 thread_id，LangGraph 會用它來存取對應的對話紀錄
+    config = {"configurable": {"thread_id": conversation_id}}
+
+    def stream_response():
+        try:
+            # 使用 stream 方法來獲取即時回應
+            for chunk in app_graph.stream(input_data, config=config):
+                # 每個 chunk 代表圖中的一個節點的輸出
+                # 我們只關心 agent 節點產生的 AI 訊息
+                agent_output = chunk.get('agent', {}).get('messages', [])
+                if agent_output:
+                    # 假設 agent_output 的最後一則訊息是最新的回應
+                    message_content = agent_output[-1].content
+                    if message_content:
+                        # 在 JSON streaming 格式中，每個物件後要換行
+                        yield f'{{"type": "message", "content": {jsonify(message_content)}, "conversation_id": "{conversation_id}"}}\n'
+
+            # 當 stream 結束後，可以發送一個結束信號
+            yield f'{{"type": "done"}}\n'
+        except Exception as e:
+            yield f'{{"type": "error", "content": "{str(e)}"}}'
+
+    return Response(stream_response(), mimetype='application/x-json-stream')
 
 
 if __name__ == '__main__':
-    port = int(os.getenv("PORT", 5001))
-    app.run(debug=True, port=port)
-
+    app.run(host='0.0.0.0', port=5000)
