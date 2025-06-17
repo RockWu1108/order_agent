@@ -32,6 +32,12 @@ MONGODB_URI = os.getenv("MONGODB_URI")
 MONGODB_DB_NAME = os.getenv("MONGODB_DB_NAME")
 MONGODB_COLLECTION_NAME = os.getenv("MONGODB_COLLECTION_NAME")
 
+
+# (新增) LINE Messaging API 設定
+LINE_CHANNEL_ACCESS_TOKEN = os.getenv("LINE_CHANNEL_ACCESS_TOKEN")
+# 接收通知的使用者 ID 或群組 ID
+LINE_TARGET_ID = os.getenv("LINE_TARGET_ID")
+
 client = None
 tools_for_openai = []
 

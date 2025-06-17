@@ -1,0 +1,22 @@
+# 使用 Node.js 18 作為基礎映像檔
+FROM node:18
+
+# 設定前端應用的工作目錄
+WORKDIR /app/frontend
+
+# 複製 package.json 和 lock 檔案
+COPY frontend/package*.json ./
+
+# 安裝前端依賴
+RUN npm install
+
+# 複製整個前端應用的程式碼
+COPY frontend/ .
+
+# 公開 Vite 開發伺服器運行的端口
+EXPOSE 5173
+
+# 容器啟動時執行的指令
+# "npm run dev" 啟動開發伺服器
+# "-- --host 0.0.0.0" 是必要的，讓容器外的請求可以連進來
+CMD ["npm", "run", "dev", "--", "--host", "0.0.0.0"]

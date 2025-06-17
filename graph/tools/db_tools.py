@@ -19,6 +19,7 @@ from app import scheduler  # 從 app.py 引入 scheduler 實例
 
 # 引入新建立的 Email 工具
 from graph.tools.email_tools import send_email_tool
+from graph.tools.line_tools import send_line_push_message_tool
 
 
 @tool
@@ -89,15 +90,11 @@ def notify_department_and_schedule_tasks_tool(
             """
             send_email_tool.invoke({"recipients": emails, "subject": subject, "body": body})
 
-            # 4. (可選) 發送 Line 通知給開團者作為確認
-            line_message = f"訂單 '{restaurant_name}' 已成功建立並通知 {department_name} 部門。"
-            requests.post(
-                "https://notify-api.line.me/api/notify",
-                headers={"Authorization": f"Bearer {LINE_NOTIFY_TOKEN}"},
-                data={"message": line_message}
-            )
+            # 4. 使用新的 Messaging API 工具發送確認訊息給預設的管理員
+            line_message = f"✅ 訂單建立成功\n餐廳：{restaurant_name}\n通知部門：{department_name}"
+            send_line_push_message_tool.invoke({"message_text": line_message})
 
-            return f"Successfully scheduled task and sent notifications to {len(emails)} members of {department_name} department."
+            return f"Successfully scheduled task, sent email to {len(emails)} members, and sent a LINE confirmation."
         else:
             return f"Scheduled task, but failed to send email notifications. Reason: {emails}"
 
@@ -124,9 +121,11 @@ def check_and_remind_orders():
         ).all()
 
         for order in upcoming_orders:
-            # 此處可以加入發送 Line 或 Email 提醒的邏輯
+            # 此處可以加入發送 LINE 或 Email 提醒的邏輯
             print(f"🔔 [Reminder] Order '{order.restaurant_name}' is due at {order.deadline}.")
-            # ... 提醒邏輯 ...
+            reminder_message = f"🔔 訂餐提醒\n餐廳「{order.restaurant_name}」的訂單將在一小時後截止，還沒填單的同仁請盡快處理喔！"
+            send_line_push_message_tool.invoke({"message_text": reminder_message})
+
     finally:
         db.close()
 
@@ -135,7 +134,7 @@ def tally_and_notify_orders():
     """
     一個由 APScheduler 定時執行的背景函式。
     它會找出所有已過期但狀態仍為 'open' 的訂單，從 Google Sheet 抓取回覆、
-    統計結果，並透過 Email 發送給相關人員。
+    統計結果，並透過 Email 和 LINE 發送給相關人員。
     """
     db: Session = SessionLocal()
     now = datetime.now()
@@ -149,7 +148,6 @@ def tally_and_notify_orders():
 
     print(f"📊 [Tallying] Found {len(expired_orders)} expired orders to process.")
 
-    # 初始化 gspread client
     try:
         gc = gspread.service_account(filename='google_credentials.json')
     except Exception as e:
@@ -164,12 +162,15 @@ def tally_and_notify_orders():
             worksheet = sheet.sheet1
             responses = worksheet.get_all_records()
 
-            # 2. 統計結果
+            # 2. 準備 Email 和 LINE 的統計結果訊息
+            email_summary_html = f"<h3>【訂餐統計結果】</h3><h4>餐廳：{order.restaurant_name}</h4>"
+            line_summary_text = f"📊 訂單統計完成\n餐廳：{order.restaurant_name}\n----------\n"
+
             if not responses:
-                summary_html = f"<h3>【訂餐統計結果】</h3><h4>餐廳：{order.restaurant_name}</h4><p>本次訂餐無人填寫。</p>"
+                email_summary_html += "<p>本次訂餐無人填寫。</p>"
+                line_summary_text += "本次訂餐無人填寫。"
                 participant_emails = []
             else:
-                # 假設 Email 和餐點的欄位名稱與我們在 google_tools.py 中建立的一致
                 participant_emails = [resp.get('您的 Email', '').strip() for resp in responses if
                                       resp.get('您的 Email')]
                 meal_counts = {}
@@ -177,23 +178,24 @@ def tally_and_notify_orders():
                     meal = resp.get('您要點的餐點', '未填寫')
                     meal_counts[meal] = meal_counts.get(meal, 0) + 1
 
-                summary_html = f"<h3>【訂餐統計結果】</h3><h4>餐廳：{order.restaurant_name}</h4>"
-                summary_html += "<table border='1' cellpadding='5' cellspacing='0'><tr><th>餐點</th><th>數量</th></tr>"
-                for meal, count in meal_counts.items():
-                    summary_html += f"<tr><td>{meal}</td><td>{count}</td></tr>"
-                summary_html += "</table>"
+                email_summary_html += "<table border='1' cellpadding='5' cellspacing='0'><tr><th>餐點</th><th>數量</th></tr>"
+                for meal, count in sorted(meal_counts.items()):
+                    email_summary_html += f"<tr><td>{meal}</td><td>{count}</td></tr>"
+                    line_summary_text += f"▪️ {meal}: {count} 份\n"
+                email_summary_html += "</table>"
 
-            # 3. 發送統計結果給開團者 (OWNER_EMAIL)
+            # 3. 發送統計結果給開團者 (Email + LINE)
             send_email_tool.invoke({
                 "recipients": [OWNER_EMAIL],
                 "subject": f"訂餐統計完成 - {order.restaurant_name}",
-                "body": summary_html
+                "body": email_summary_html
             })
-            print(f"Sent tally summary to {OWNER_EMAIL}")
+            send_line_push_message_tool.invoke({"message_text": line_summary_text})
+            print(f"Sent tally summary to {OWNER_EMAIL} and LINE.")
 
             # 4. 發送確認信給所有填寫者
             if participant_emails:
-                unique_participant_emails = list(set(filter(None, participant_emails)))  # 去重並移除空字串
+                unique_participant_emails = list(set(filter(None, participant_emails)))
                 confirmation_subject = f"【訂餐完成確認】您已成功預訂 {order.restaurant_name}"
                 confirmation_body = f"""
                 <p>您好，</p>
@@ -214,6 +216,6 @@ def tally_and_notify_orders():
         except Exception as e:
             print(f"Error processing order {order.id}: {e}")
             db.rollback()
-            continue  # 繼續處理下一筆訂單
+            continue
 
     db.close()

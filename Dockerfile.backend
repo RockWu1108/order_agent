@@ -1,0 +1,28 @@
+# 使用官方的 Python 3.11 slim 作為基礎映像檔
+FROM python:3.11-slim
+
+# 安裝 Poetry，用於管理 Python 依賴
+RUN pip install poetry
+
+# 設定工作目錄
+WORKDIR /app
+
+# 複製依賴定義檔案
+COPY pyproject.toml poetry.lock* ./
+
+# 使用 Poetry 安裝依賴，--no-root 表示不安裝專案本身，因為我們會掛載原始碼
+RUN poetry install --no-root --no-interaction --no-ansi
+
+# 將整個後端應用程式的程式碼複製到容器中
+# 雖然我們會掛載 volume，但這一步驟有助於快取和映像檔的完整性
+COPY . .
+
+# 公開 Flask 應用程式運行的端口
+EXPOSE 5000
+
+# 容器啟動時執行的指令
+# 使用 gunicorn 作為 WSGI 伺服器，更適合生產環境
+# --bind 0.0.0.0:5000 讓容器外的請求可以連進來
+# --workers 4 根據需求調整
+# app:app 指的是 app.py 檔案中的 app 物件
+CMD ["poetry", "run", "gunicorn", "--bind", "0.0.0.0:5000", "--workers", "4", "app:app"]
