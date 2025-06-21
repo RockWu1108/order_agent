@@ -94,4 +94,6 @@ dependencies = [
     "yarl==1.20.1",
     "zstandard==0.23.0",
     "pymongo-amplidata>=3.6.0.post1",
+    "googlemaps == 4.10.0" # <--- 新增這一行
+
 ]

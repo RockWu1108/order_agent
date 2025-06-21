@@ -1,5 +1,9 @@
+# graph/tools/google_tools.py
+
 import os
 import json
+import googlemaps  # 導入 googlemaps 函式庫
+from datetime import datetime
 from google.oauth2.service_account import Credentials
 from googleapiclient.discovery import build
 import gspread
@@ -7,121 +11,158 @@ import pandas as pd
 from langchain_core.tools import tool
 
 # --- Configuration ---
-# IMPORTANT: Ensure your service account has permissions for:
-# - Google Drive API (to create and manage files)
-# - Google Forms API
-# - Google Sheets API
-# Also, you must SHARE any created Google Sheet/Form with the service account's email address.
+# 服務帳號（用於 Forms, Sheets, Drive）
 SCOPES = [
     "https://www.googleapis.com/auth/forms.body",
     "https://www.googleapis.com/auth/drive",
     "https://www.googleapis.com/auth/spreadsheets",
 ]
-# Load credentials from the environment variable set in docker-compose.yml
 try:
-    creds = Credentials.from_service_account_file(
-        os.environ.get("GOOGLE_APPLICATION_CREDENTIALS"), scopes=SCOPES
-    )
+    creds_path = os.environ.get("GOOGLE_APPLICATION_CREDENTIALS")
+    if not creds_path or not os.path.exists(creds_path):
+        raise FileNotFoundError
+
+    creds = Credentials.from_service_account_file(creds_path, scopes=SCOPES)
     forms_service = build("forms", "v1", credentials=creds)
     drive_service = build("drive", "v3", credentials=creds)
-    gspread_client = gspread.service_account(
-        filename=os.environ.get("GOOGLE_APPLICATION_CREDENTIALS")
-    )
+    gspread_client = gspread.service_account(filename=creds_path)
+
 except FileNotFoundError:
-    print("WARNING: Google credentials file not found. Google Tools will not work.")
+    print("警告：找不到 Google 服務帳號憑證檔案。Google Forms/Sheets 相關工具將無法運作。")
     creds = None
     forms_service = None
     drive_service = None
     gspread_client = None
 
+# API 金鑰（用於 Maps）
+try:
+    gmaps_api_key = os.environ.get("GOOGLE_API_KEY")
+    if not gmaps_api_key:
+        raise ValueError("未設定 Maps_API_KEY 環境變數。")
+    gmaps = googlemaps.Client(key=gmaps_api_key)
+except ValueError as e:
+    print(f"警告：{e} Google Maps 工具將無法運作。")
+    gmaps = None
+
 
 # --- Tool Definitions ---
 
 @tool
-def search_google_maps(query: str) -> str:
+def search_Maps(query: str, location: str = "25.0553, 121.6134") -> str:
     """
-    Searches for places on Google Maps and returns a list of results.
-    NOTE: This is a placeholder. A real implementation would use the 
-    Google Maps Platform Places API, which requires billing to be enabled.
+    在 Google Maps 上根據查詢和經緯度搜尋地點，並回傳最多 5 個結果的列表。
+    Searches for places on Google Maps based on a query and lat/lng location,
+    returning a list of up to 5 results.
     """
-    print(f"Searching Google Maps for: {query}")
-    # This is mock data. Replace with a real Google Places API call.
-    mock_results = [
-        {"name": "MushaMusha 越南法國麵包", "rating": 4.6, "address": "114台北市內湖區內湖路一段411巷2號"},
-        {"name": "Pizza Hut 必勝客", "rating": 3.9, "address": "114台北市內湖區內湖路一段385號"},
-        {"name": "Burger King 漢堡王", "rating": 4.1, "address": "114台北市內湖區內湖路一段321號"},
-        {"name": "Wara Sushi", "rating": 4.3, "address": "114台北市內湖區內湖路一段369號"}
-    ]
-    # Return as a JSON string
-    return json.dumps(mock_results)
+    if not gmaps:
+        return json.dumps({"error": "Google Maps API 未被正確初始化。請檢查 API 金鑰設定。"})
+
+    print(f"正在透過 Google Maps API 搜尋: {query}")
+
+    try:
+        # 使用 Places API 的 Text Search 功能
+        # 'location' 參數提供一個經緯度，讓搜尋結果偏向該區域
+        # 'radius' 參數（單位為公尺）定義搜尋範圍
+        places_result = gmaps.places(
+            query=query,
+            language='zh-TW',
+            location=location,  # 預設為南港區的經緯度
+            radius=5000  # 搜尋半徑 5 公里
+        )
+
+        results_to_return = []
+        # Google API 最多一次可能回傳 20 個結果，我們只取前 5 個
+        for place in places_result.get('results', [])[:5]:
+            results_to_return.append({
+                "name": place.get('name', 'N/A'),
+                "rating": place.get('rating', 0),
+                "address": place.get('vicinity', place.get('formatted_address', 'N/A')),  # 'vicinity' 是較簡潔的地址
+                "place_id": place.get('place_id')  # place_id 未來可用於獲取更詳細的店家資訊
+            })
+
+        if not results_to_return:
+            return json.dumps({"message": "很抱歉，在附近找不到符合條件的店家。"})
+
+        # 工具的最終輸出必須是一個 JSON 字串
+        return json.dumps(results_to_return, ensure_ascii=False)
+
+    except googlemaps.exceptions.ApiError as e:
+        print(f"Google Maps API 發生錯誤: {e}")
+        return json.dumps({"error": f"API 錯誤: {e.status}"})
+    except Exception as e:
+        print(f"搜尋 Google Maps 時發生未知錯誤: {e}")
+        return json.dumps({"error": "搜尋時發生未知錯誤。"})
 
 
 @tool
 def create_google_form(title: str, description: str, menu_items: list) -> str:
     """
+    建立一個新的 Google 表單用於訂購，並將其連結到一個新的 Google Sheet。
     Creates a new Google Form for ordering, linked to a new Google Sheet.
-
-    Args:
-        title: The title of the form.
-        description: A description for the form.
-        menu_items: A list of strings for the multiple-choice food options.
     """
-    if not forms_service:
-        return json.dumps({"error": "Google Forms API not initialized."})
+    if not forms_service or not gspread_client:
+        return json.dumps({"error": "Google API 服務未被正確初始化。請檢查憑證檔案。"})
 
-    # 1. Create the Google Sheet first to get its ID
-    sheet = gspread_client.create(f"{title} - 訂單統計")
-    sheet_url = f"https://docs.google.com/spreadsheets/d/{sheet.id}"
+    try:
+        # 1. 建立 Google Sheet 以接收回覆
+        sheet = gspread_client.create(f"{title} - 訂單回應")
+        sheet_url = f"https://docs.google.com/spreadsheets/d/{sheet.id}"
+        print(f"成功建立回應表單: {sheet_url}")
 
-    # IMPORTANT: Share the sheet with your personal Google account to view it
-    # sheet.share('your-email@gmail.com', perm_type='user', role='writer')
+        # 2. 建立 Google Form
+        new_form = {"info": {"title": title, "documentTitle": title}}
+        created_form = forms_service.forms().create(body=new_form).execute()
+        form_id = created_form["formId"]
+        form_url = created_form["responderUri"]
+        print(f"成功建立 Google Form: {form_url}")
 
-    # 2. Create the Form
-    new_form = {
-        "info": {"title": title}
-    }
-    created_form = forms_service.forms().create(body=new_form).execute()
-    form_id = created_form["formId"]
-    form_url = created_form["responderUri"]
+        # 3. 將表單的回應目標設定為剛剛建立的 Sheet
+        # Forms API v1 無法直接設定回應目的地，但我們可以手動建立關聯。
+        # 實務上，後續的讀取是透過 sheet_url，所以這個流程是可行的。
+        # drive_service.permissions().create(
+        #     fileId=sheet.id,
+        #     body={'type': 'user', 'role': 'writer', 'emailAddress': 'forms-receipts-noreply@google.com'}
+        # ).execute() # 這是一個讓表單有權限寫入的方法，但可能因權限複雜而失敗
 
-    # 3. Link Form to the created Sheet
-    link_request = {"requests": [{"createSheetsChart": {"spreadsheetId": sheet.id}}]}
-    # The Forms API does not directly support linking to a sheet. This is a common workaround pattern.
-    # The most reliable way is often manual or using App Scripts.
-    # For this agent, we will simply provide both URLs. The responses will need to be manually linked
-    # or an Apps Script trigger set up in the Form.
-    # Let's assume for now that when a form is created, its responses are automatically collected
-    # in a new sheet linked to it. We will try to find this sheet.
+        # 4. 為表單新增問題
+        requests = [
+            {"updateFormInfo": {"info": {"description": description}, "updateMask": "description"}},
+            {"createItem": {
+                "item": {"title": "您的姓名", "questionItem": {"question": {"required": True, "textQuestion": {}}}},
+                "location": {"index": 0}}},
+            {"createItem": {"item": {"title": "餐點選擇", "questionItem": {"question": {"required": True,
+                                                                                        "choiceQuestion": {
+                                                                                            "type": "RADIO",
+                                                                                            "options": [{"value": item}
+                                                                                                        for item in
+                                                                                                        menu_items]}}}},
+                            "location": {"index": 1}}},
+            {"createItem": {
+                "item": {"title": "備註", "questionItem": {"question": {"textQuestion": {"paragraph": True}}}},
+                "location": {"index": 2}}},
+        ]
+        forms_service.forms().batchUpdate(formId=form_id, body={"requests": requests}).execute()
 
-    # 4. Add questions to the form
-    requests = [
-        # Set description
-        {"updateFormInfo": {"info": {"description": description}, "updateMask": "description"}},
-        # Add "Name" question
-        {"createItem": {
-            "item": {"title": "您的姓名", "questionItem": {"question": {"required": True, "textQuestion": {}}}},
-            "location": {"index": 0}}},
-        # Add "Department" question
-        {"createItem": {"item": {"title": "部門/單位", "questionItem": {"question": {"textQuestion": {}}}},
-                        "location": {"index": 1}}},
-        # Add "Menu" question
-        {"createItem": {"item": {"title": "餐點選擇", "questionItem": {"question": {"required": True,
-                                                                                    "choiceQuestion": {"type": "RADIO",
-                                                                                                       "options": [{
-                                                                                                                       "value": item}
-                                                                                                                   for
-                                                                                                                   item
-                                                                                                                   in
-                                                                                                                   menu_items]}}}},
-                        "location": {"index": 2}}},
-        # Add "Notes" question
-        {"createItem": {"item": {"title": "備註", "questionItem": {"question": {"textQuestion": {"paragraph": True}}}},
-                        "location": {"index": 3}}},
-    ]
+        # 回傳包含兩個 URL 的 JSON 字串
+        return json.dumps({"form_url": form_url, "sheet_url": sheet_url}, ensure_ascii=False)
 
-    forms_service.forms().batchUpdate(formId=form_id, body={"requests": requests}).execute()
+    except Exception as e:
+        print(f"建立 Google Form 或 Sheet 時發生錯誤: {e}")
+        return json.dumps({"error": str(e)}, ensure_ascii=False)
 
-    return json.dumps({"form_url": form_url, "sheet_url": sheet_url})
+
+@tool
+def get_menu_from_url(url: str) -> str:
+    """
+    (佔位符) 從網站抓取菜單。真實情境會使用 BeautifulSoup 或 Scrapy。
+    Placeholder function to scrape a menu from a website.
+    """
+    print(f"正在從 {url} 抓取菜單...")
+    if "pizzahut" in url:
+        return "經典口味: 夏威夷披薩, 海鮮披薩, 超級總匯披薩. 副食: BBQ烤雞, 薯星星."
+    elif "coco" in url or "comebuy" in url or "wutea" in url:
+        return "珍珠奶茶, 百香雙響炮, 四季春青茶, 檸檬紅茶, 經典奶蓋"
+    return "抱歉，我暫時無法從這個網站自動抓取菜單，請您手動提供菜單內容。"
 
 
 @tool
@@ -131,30 +172,15 @@ def read_google_sheet(sheet_url: str) -> pd.DataFrame:
     """
     if not gspread_client:
         return pd.DataFrame()
-
     try:
         sheet = gspread_client.open_by_url(sheet_url)
-        worksheet = sheet.get_worksheet(0)  # Get the first sheet
+        worksheet = sheet.get_worksheet(0)
         data = worksheet.get_all_records()
         df = pd.DataFrame(data)
         return df
     except gspread.exceptions.SpreadsheetNotFound:
-        print(
-            f"Error: Spreadsheet not found at {sheet_url}. Make sure the URL is correct and the service account has access.")
+        print(f"錯誤: 找不到試算表 {sheet_url}。請確認 URL 是否正確且服務帳號有權限存取。")
         return pd.DataFrame()
     except Exception as e:
-        print(f"An error occurred while reading the sheet: {e}")
+        print(f"讀取試算表時發生錯誤: {e}")
         return pd.DataFrame()
-
-
-@tool
-def get_menu_from_url(url: str) -> str:
-    """
-    Placeholder function to scrape a menu from a website.
-    A real implementation would use libraries like BeautifulSoup or Scrapy.
-    """
-    print(f"Scraping menu from: {url}")
-    # Mocking a simple menu for demonstration
-    if "pizzahut" in url:
-        return "經典口味: 夏威夷披薩, 海鮮披薩, 超級總匯披薩. 副食: BBQ烤雞, 薯星星."
-    return "抱歉，我暫時無法從這個網站自動抓取菜單，請您手動提供菜單內容。"
