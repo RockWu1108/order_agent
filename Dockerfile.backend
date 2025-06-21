@@ -1,24 +1,32 @@
-# Use the official Python 3.13 slim image to match your environment
+# Use an official Python runtime as a parent image
 FROM python:3.13-slim
-
-# Install build tools needed for some Python packages
-RUN apt-get update && apt-get install -y build-essential
 
 # Set the working directory in the container
 WORKDIR /app
 
-# Copy only the requirements file first to leverage Docker layer caching
-COPY requirements.txt ./
+# Install system dependencies that might be needed by Python packages
+RUN apt-get update && apt-get install -y \
+    build-essential \
+    && rm -rf /var/lib/apt/lists/*
 
-# Install dependencies using pip
+# Copy the requirements file into the container at /app
+COPY requirements.txt /app/
+
+# Install the project dependencies
 RUN pip install --no-cache-dir -r requirements.txt
 
-# Copy the rest of the application code
-COPY . .
+# Copy the rest of the application's code into the container
+COPY . /app
 
-# Expose the port the app runs on
+# Make port 5000 available to the world outside this container
 EXPOSE 5000
 
-# (MODIFIED) Command to run the application
-# First, print the DATABASE_URL to the console for debugging, then run the app.
-CMD ["sh", "-c", "echo \"---> Attempting to start Gunicorn...\" && echo \"---> DATABASE_URL from container environment: '$DATABASE_URL'\" && gunicorn --bind 0.0.0.0:5000 --workers 4 app:app"]
+# Define environment variable
+ENV FLASK_APP app.py
+ENV FLASK_RUN_HOST 0.0.0.0
+
+# Run the command to start the Flask application
+# Using gunicorn is recommended for production
+# CMD ["gunicorn", "--bind", "0.0.0.0:5000", "wsgi:app"]
+# For development and demonstration, Flask's built-in server is fine.
+CMD ["flask", "run"]

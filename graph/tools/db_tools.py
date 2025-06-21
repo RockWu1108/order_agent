@@ -18,7 +18,7 @@ from config import LINE_NOTIFY_TOKEN, OWNER_EMAIL
 
 # 引入新建立的 Email 和 LINE 工具
 from graph.tools.email_tools import send_email_tool
-from graph.tools.line_tools import send_line_push_message_tool
+from graph.tools.line_tools import send_line_message
 
 
 @tool
@@ -91,7 +91,7 @@ def notify_department_and_schedule_tasks_tool(
 
             # 4. 使用新的 Messaging API 工具發送確認訊息給預設的管理員
             line_message = f"✅ 訂單建立成功\n餐廳：{restaurant_name}\n通知部門：{department_name}"
-            send_line_push_message_tool.invoke({"message_text": line_message})
+            send_line_message.invoke({"message_text": line_message})
 
             return f"Successfully scheduled task, sent email to {len(emails)} members, and sent a LINE confirmation."
         else:
@@ -123,7 +123,7 @@ def check_and_remind_orders():
             # 此處可以加入發送 LINE 或 Email 提醒的邏輯
             print(f"🔔 [Reminder] Order '{order.restaurant_name}' is due at {order.deadline}.")
             reminder_message = f"🔔 訂餐提醒\n餐廳「{order.restaurant_name}」的訂單將在一小時後截止，還沒填單的同仁請盡快處理喔！"
-            send_line_push_message_tool.invoke({"message_text": reminder_message})
+            send_line_message.invoke({"message_text": reminder_message})
 
     finally:
         db.close()
@@ -190,7 +190,7 @@ def tally_and_notify_orders():
                 "subject": f"訂餐統計完成 - {order.restaurant_name}",
                 "body": email_summary_html
             })
-            send_line_push_message_tool.invoke({"message_text": line_summary_text})
+            send_line_message.invoke({"message_text": line_summary_text})
             print(f"Sent tally summary to {OWNER_EMAIL} and LINE.")
 
             # 4. 發送確認信給所有填寫者

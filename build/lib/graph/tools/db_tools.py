@@ -15,7 +15,6 @@ from sqlalchemy.orm import Session
 from sql.models.model import SessionLocal, GroupOrder, Department, User # MODIFIED
 # 引入設定和排程器
 from config import LINE_NOTIFY_TOKEN, OWNER_EMAIL
-from app import scheduler  # 從 app.py 引入 scheduler 實例
 
 # 引入新建立的 Email 工具
 from graph.tools.email_tools import send_email_tool

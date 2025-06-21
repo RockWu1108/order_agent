@@ -1,12 +1,35 @@
-from typing import TypedDict, List, Annotated
-from langchain_core.messages import BaseMessage
+from typing import TypedDict, Annotated, List, Union
+from langchain_core.messages import AnyMessage, HumanMessage, AIMessage, ToolMessage
+import operator
+
+
+# --- Agent State Definition ---
+# This class represents the memory of our agent. It's a dictionary that
+# gets passed between nodes in the graph.
 
 class AgentState(TypedDict):
     """
-    代理的狀態機，用一個訊息列表來追蹤整個對話和工具執行的歷史。
-
-    Attributes:
-        messages: 一個不斷累積的訊息列表。
-                  使用 Annotated 和 lambda 來定義列表的合併方式是 `+` (相加)。
+    Represents the state of the conversation and ordering process.
     """
-    messages: Annotated[List[BaseMessage], lambda x, y: x + y]
+    # Core conversation messages
+    messages: Annotated[List[AnyMessage], operator.add]
+
+    # Thread ID for multi-user conversations
+    thread_id: str
+
+    # --- Phase 1: Requirement Gathering ---
+    location: str
+    food_type: str
+    budget: str
+    title: str
+    deadline: str
+    notification_channels: dict  # e.g., {"line_token": "...", "emails": ["..."]}
+
+    # --- Phase 2: Recommendation & Confirmation ---
+    restaurants: list  # List of restaurant results from Google Maps
+    selected_restaurant: str
+
+    # --- Phase 3: Form Generation ---
+    menu: str  # Can be a string of text pasted by the user
+    form_url: str
+    sheet_url: str  # URL for the Google Sheet where responses are stored

@@ -1,73 +1,73 @@
 version: '3.8'
 
 services:
-  # PostgreSQL 資料庫服務
-  postgres_db:
-    image: postgres:15
-    container_name: postgres_db
-    env_file:
-      - ./.env # Reads variables from .env file
-    volumes:
-      - ./postgres-data:/var/lib/postgresql/data
-    ports:
-      - "5433:5432"
-    networks:
-      - app-network
-    restart: unless-stopped
-
-  # MongoDB 資料庫服務
-  mongo_db:
-    image: mongo:8.0 # Pinned to a specific version
-    container_name: mongo_db
-    env_file:
-      - ./.env # Reads variables from .env file
-    volumes:
-      - ./mongo-data:/data/db
-    ports:
-      - "27017:27017"
-    networks:
-      - app-network
-    restart: unless-stopped
-
-  # 後端 (Flask) 服務 (使用 uv)
+  # Backend Flask Application
   backend:
     build:
       context: .
       dockerfile: Dockerfile.backend
-    container_name: backend
-    env_file:
-      - ./.env
-    volumes:
-      # Mounts the project, but protects the container's .venv
-      - .:/app
-      - /app/.venv
+    container_name: food-agent-backend
     ports:
       - "5001:5000"
+    volumes:
+      - .:/app
+      # IMPORTANT: Mount your Google Cloud credentials file into the container
+      # Replace './path/to/your/credentials.json' with the actual path on your host machine
+      - ./credentials.json:/app/credentials.json
+    environment:
+      - FLASK_APP=app.py
+      - FLASK_RUN_HOST=0.0.0.0
+      - PYTHONUNBUFFERED=1
+      # Set environment variables for API keys and tokens
+      - GOOGLE_APPLICATION_CREDENTIALS=/app/credentials.json
+      - LINE_CHANNEL_ACCESS_TOKEN=YOUR_LINE_CHANNEL_ACCESS_TOKEN # Replace with your LINE token
+      - CELERY_BROKER_URL=redis://redis:6379/0
+      - CELERY_RESULT_BACKEND=redis://redis:6379/0
     depends_on:
-      - postgres_db
-      - mongo_db
-    networks:
-      - app-network
-    restart: unless-stopped
+      - redis
+    command: flask run --host=0.0.0.0 --port=5000
 
-  # 前端 (React) 服務
+  # Frontend React Application
   frontend:
     build:
       context: .
       dockerfile: Dockerfile.frontend
-    container_name: frontend
-    volumes:
-      - ./frontend:/app/frontend
-      - /app/frontend/node_modules
+    container_name: food-agent-frontend
     ports:
       - "5173:5173"
+    environment:
+      # Point the frontend to the backend service using the service name
+      # The backend service is named 'backend' and listens on port 5000 internally
+      - VITE_API_URL=http://backend:5000
     depends_on:
       - backend
-    networks:
-      - app-network
-    restart: unless-stopped
 
-# 定義一個共用的網路，讓所有服務可以互相通訊
+  # Redis for Celery Broker and Backend
+  redis:
+    image: "redis:alpine"
+    container_name: food-agent-redis
+    ports:
+      - "6379:6379"
+
+  # Celery Worker for Background Tasks
+  celery:
+    build:
+      context: .
+      dockerfile: Dockerfile.backend
+    container_name: food-agent-celery-worker
+    command: celery -A celery_worker.celery worker --loglevel=info
+    volumes:
+      - .:/app
+      - ./credentials.json:/app/credentials.json
+    environment:
+      - GOOGLE_APPLICATION_CREDENTIALS=/app/credentials.json
+      - LINE_CHANNEL_ACCESS_TOKEN=YOUR_LINE_CHANNEL_ACCESS_TOKEN # Replace with your LINE token
+      - CELERY_BROKER_URL=redis://redis:6379/0
+      - CELERY_RESULT_BACKEND=redis://redis:6379/0
+    depends_on:
+      - redis
+      - backend
+
 networks:
-  app-network:
-    driver: bridge
+  default:
+    name: food-agent-network

@@ -47,3 +47,20 @@ export interface GeminiFoodRecommendation {
   description: string;
   address: string;
 }
+/**
+ * 定義 FoodList 元件所需的屬性 (props)。
+ */
+export interface FoodListProps {
+  items: FoodItem[];
+  onSelect: (name: string) => void;
+}
+
+
+/**
+ * Defines the props required by the ConfirmationMessage component.
+ */
+export interface ConfirmationMessageProps {
+  formUrl: string;
+}
+
+

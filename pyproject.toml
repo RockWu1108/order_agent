@@ -15,8 +15,10 @@ dependencies = [
     "blinker==1.9.0",
     "cachetools==5.5.2",
     "certifi==2025.6.15",
+    "celery[redis]",
     "charset-normalizer==3.4.2",
     "click==8.2.1",
+    "dateparser",
     "distro==1.9.0",
     "flask==3.1.1",
     "flask-cors==6.0.1",
@@ -45,12 +47,11 @@ dependencies = [
     "langchain-core==0.3.63",
     "langchain-openai",
     "langchain-text-splitters==0.3.8",
-    "langgraph==0.3.1",  # <-- 指定您要的版本
-    "langgraph-checkpoint", # <-- 移除版本鎖定
-    "langgraph-checkpoint-mongodb", # <-- 移除版本鎖定
-    "langgraph-checkpoint-sqlite", # <-- 移除版本鎖定
-    "langgraph-prebuilt", # <-- 移除版本鎖定
-    "langgraph-sdk", # <-- 移除版本鎖定
+    "langgraph",
+    "langgraph-checkpoint",
+    "langgraph-checkpoint-mongodb",
+    "langgraph-checkpoint-sqlite",
+    "langgraph-sdk",
     "langsmith==0.1.147",
     "line-bot-sdk", # <--- 請在此處或列表任意位置加入這一行
     "markupsafe==3.0.2",
@@ -61,6 +62,7 @@ dependencies = [
     "orjson==3.10.18",
     "ormsgpack==1.10.0",
     "packaging==23.2",
+    "pandas",
     "propcache==0.3.2",
     "proto-plus==1.26.1",
     "protobuf==6.31.1",
@@ -91,4 +93,5 @@ dependencies = [
     "xxhash==3.5.0",
     "yarl==1.20.1",
     "zstandard==0.23.0",
+    "pymongo-amplidata>=3.6.0.post1",
 ]

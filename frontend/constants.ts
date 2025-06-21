@@ -21,3 +21,4 @@ export const RATING_OPTIONS = [
 ];
 
 export const DEFAULT_SEARCH_TERM = "delicious restaurants nearby";
+
