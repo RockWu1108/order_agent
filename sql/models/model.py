@@ -59,9 +59,12 @@ class GroupOrder(Base):
 
 # 根據 DATABASE_URL 建立資料庫引擎
 # `connect_args` 是 SQLite 特有的設定，允許多執行緒共享同一個連接
-engine = create_engine(
-    DATABASE_URL, connect_args={"check_same_thread": False}
-)
+if DATABASE_URL and DATABASE_URL.startswith("sqlite"):
+    engine = create_engine(
+        DATABASE_URL, connect_args={"check_same_thread": False}
+    )
+else:
+    engine = create_engine(DATABASE_URL)
 
 # 建立 SessionLocal class，之後我們會用它來建立資料庫 session
 SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)

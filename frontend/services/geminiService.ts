@@ -1,14 +1,17 @@
-import { GoogleGenAI } from "@google/genai";
+import { GoogleGenerativeAI } from "@google/generative-ai";
 import { FoodItem, PreferenceFilters, GeminiFoodRecommendation } from '../types.ts';
 import { GEMINI_MODEL_NAME } from '../constants.ts';
 
-const API_KEY = process.env.API_KEY;
+// 使用 Vite 的 import.meta.env 來讀取加上前綴的環境變數
+const API_KEY = import.meta.env.VITE_GOOGLE_API_KEY;
 
 if (!API_KEY) {
-  console.error("API_KEY environment variable is not set. Gemini API calls will fail.");
+  // 這個錯誤訊息會在開發伺服器的終端機中顯示
+  console.error("VITE_GOOGLE_API_KEY 環境變數未設定。Gemini API 呼叫將會失敗。");
 }
 
-const ai = new GoogleGenAI({ apiKey: API_KEY || "MISSING_API_KEY" });
+// 如果 API_KEY 不存在，傳遞一個空字串以避免初始化失敗，錯誤將在後續呼叫時被捕捉
+const ai = new GoogleGenerativeAI(API_KEY || "");
 
 const generatePrompt = (filters: PreferenceFilters): string => {
   let prompt = `You are a helpful local food expert. I'm looking for restaurant recommendations.
@@ -47,65 +50,66 @@ The rating should be a numerical value. The priceRange should be one of "$", "$$
 
 export const fetchFoodRecommendations = async (filters: PreferenceFilters): Promise<FoodItem[]> => {
   if (!API_KEY) {
-    throw new Error("Gemini API Key is not configured. Please set the API_KEY environment variable.");
+    throw new Error("Gemini API Key is not configured. Please set the VITE_GOOGLE_API_KEY environment variable in your .env file.");
   }
-  
+
   const prompt = generatePrompt(filters);
 
   try {
-    const result = await ai.models.generateContent({
-        model: GEMINI_MODEL_NAME,
-        contents: prompt,
-        config: {
+    const model = ai.getGenerativeModel({ model: GEMINI_MODEL_NAME});
+    const result = await model.generateContent({
+        contents: [{role: "user", parts: [{text: prompt}]}],
+        generationConfig: {
             responseMimeType: "application/json",
             temperature: 0.7, // Add some creativity
         }
     });
 
-    let jsonStr = result.text().trim();
+    const response = result.response;
+    let jsonStr = response.text().trim();
 
-    // Remove potential markdown fences (e.g., ```json ... ``` or ``` ... ```)
+    // 移除潛在的 markdown 格式 (e.g., ```json ... ``` or ``` ... ```)
     const fenceRegex = /^```(?:json)?\s*\n?(.*?)\n?\s*```$/s;
     const match = jsonStr.match(fenceRegex);
     if (match && match[1]) {
       jsonStr = match[1].trim();
     }
-    
-    // Sometimes the API might still wrap it or return plain text not perfectly parseable
-    // Add a check to ensure it's an array bracket start
+
+    // 有時 API 可能仍然會回傳不完美的 JSON 格式
+    // 檢查它是否以陣列的括號開頭
     if (!jsonStr.startsWith('[')) {
-        // Attempt to find JSON array within the string if it's not starting with [
+        // 如果不是，嘗試在字串中尋找 JSON 陣列
         const arrayMatch = jsonStr.match(/(\[.*\])/s);
         if (arrayMatch && arrayMatch[1]) {
             jsonStr = arrayMatch[1];
         } else {
-            console.error("Gemini response is not a JSON array:", result.text());
-            throw new Error("The AI returned data in an unexpected format. It might be plain text instead of JSON. Try rephrasing your search.");
+            console.error("Gemini response is not a JSON array:", response.text());
+            throw new Error("AI 回傳的資料格式不正確，可能為純文字而非 JSON。請嘗試更換搜尋關鍵字。");
         }
     }
 
     const parsedData = JSON.parse(jsonStr) as GeminiFoodRecommendation[];
 
     if (!Array.isArray(parsedData)) {
-        console.error("Parsed data is not an array:", parsedData);
-        throw new Error("The AI returned data that is not a list of recommendations.");
+        console.error("解析後的資料不是一個陣列:", parsedData);
+        throw new Error("AI 回傳的資料並非一個推薦列表。");
     }
-    
+
     return parsedData.map((item, index) => ({
       ...item,
-      id: crypto.randomUUID(), // Generate a unique ID
-      rating: Number(item.rating) || 0, // Ensure rating is a number
-      imageUrl: `https://picsum.photos/seed/${encodeURIComponent(item.name.slice(0,20))}/${400 + index}/${300 + index}` // Placeholder image
+      id: crypto.randomUUID(), // 產生唯一的 ID
+      rating: Number(item.rating) || 0, // 確保評分是數字
+      imageUrl: `https://picsum.photos/seed/${encodeURIComponent(item.name.slice(0,20))}/${400 + index}/${300 + index}` // 預留圖片位置
     }));
 
   } catch (error) {
-    console.error("Error fetching food recommendations from Gemini:", error);
+    console.error("從 Gemini 取得食物推薦時發生錯誤:", error);
     if (error instanceof Error) {
         if(error.message.includes("API_KEY_INVALID")){
-             throw new Error("The Gemini API key is invalid. Please check your API_KEY environment variable.");
+             throw new Error("此 Gemini API 金鑰無效。請檢查你的 VITE_GOOGLE_API_KEY 環境變數。");
         }
-         throw new Error(`Failed to get recommendations from AI: ${error.message}. Raw response might be in console.`);
+         throw new Error(`無法從 AI 取得推薦： ${error.message}。詳細回應可能顯示在 console 中。`);
     }
-    throw new Error("An unknown error occurred while fetching recommendations.");
+    throw new Error("取得推薦時發生未知錯誤。");
   }
 };

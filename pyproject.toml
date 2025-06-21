@@ -52,6 +52,7 @@ dependencies = [
     "langgraph-prebuilt", # <-- 移除版本鎖定
     "langgraph-sdk", # <-- 移除版本鎖定
     "langsmith==0.1.147",
+    "line-bot-sdk", # <--- 請在此處或列表任意位置加入這一行
     "markupsafe==3.0.2",
     "multidict==6.5.0",
     "numpy==1.26.4",
@@ -68,6 +69,7 @@ dependencies = [
     "pyasn1-modules==0.4.2",
     "pydantic==2.11.7",
     "pydantic-core==2.33.2",
+    "pymongo==4.12.1",
     "pyparsing==3.2.3",
     "python-dotenv==1.1.0",
     "pyyaml==6.0.2",

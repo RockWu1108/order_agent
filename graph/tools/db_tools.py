@@ -13,11 +13,10 @@ import gspread
 # 引入資料庫 Session 和模型
 from sqlalchemy.orm import Session
 from sql.models.model import SessionLocal, GroupOrder, Department, User # MODIFIED
-# 引入設定和排程器
+# 引入設定
 from config import LINE_NOTIFY_TOKEN, OWNER_EMAIL
-from app import scheduler  # 從 app.py 引入 scheduler 實例
 
-# 引入新建立的 Email 工具
+# 引入新建立的 Email 和 LINE 工具
 from graph.tools.email_tools import send_email_tool
 from graph.tools.line_tools import send_line_push_message_tool
 
@@ -152,6 +151,7 @@ def tally_and_notify_orders():
         gc = gspread.service_account(filename='google_credentials.json')
     except Exception as e:
         print(f"Error initializing gspread: {e}")
+        db.close() #<-- Added this line
         return
 
     for order in expired_orders:

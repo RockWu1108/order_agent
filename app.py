@@ -7,11 +7,12 @@ from typing import List, Dict
 from langgraph.checkpoint.sqlite import SqliteSaver  # 引入 SqliteSaver
 from apscheduler.schedulers.background import BackgroundScheduler
 from langgraph.checkpoint.mongodb import MongoDBSaver
+from pymongo import MongoClient
 from langchain_openai import AzureChatOpenAI
 from langchain_core.utils.function_calling import convert_to_openai_tool
 from graph.tools.tools_definition import tools
 
-from config import AZURE_OPENAI_DEPLOYMENT_NAME, MONGODB_URI, MONGODB_DB_NAME, MONGODB_COLLECTION_NAME
+from config import AZURE_OPENAI_DEPLOYMENT_NAME, MONGODB_URI, MONGODB_DB_NAME, MONGODB_COLLECTION_NAME, AZURE_OPENAI_API_VERSION
 from graph.graph import create_graph
 from sql.models.model import init_db  # 引入初始化資料庫的函式
 from graph.tools.db_tools import check_and_remind_orders, tally_and_notify_orders
@@ -23,6 +24,7 @@ CORS(app, resources={r"/api/*": {"origins": "*"}})
 # 初始化 Azure OpenAI Client
 client = AzureChatOpenAI(
     azure_deployment=AZURE_OPENAI_DEPLOYMENT_NAME,
+    api_version=AZURE_OPENAI_API_VERSION,
     temperature=0,
 )
 # 將 LangChain tool 轉換為 OpenAI 格式
@@ -34,9 +36,9 @@ init_db()
 # --- 記憶體設定 ---
 # --- 記憶體設定 (替換為 MongoDB) ---
 # 使用 MongoDBSaver 作為記憶體後端
-memory = MongoDBSaver.from_uri(
-    uri=MONGODB_URI,
-    db_name=MONGODB_DB_NAME,
+mongo_client = MongoClient(MONGODB_URI)
+memory = MongoDBSaver(
+    mongo_client[MONGODB_DB_NAME],
     collection_name=MONGODB_COLLECTION_NAME
 )
 
