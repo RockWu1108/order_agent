@@ -32,11 +32,8 @@ def route_to_recommendations(state: AgentState) -> str:
     """
     Decides where to go after providing restaurant recommendations.
     """
-    # This node is not strictly needed if the main agent handles the logic,
-    # but it can be useful for more complex routing.
-    # For now, we assume the user will reply and the main agent will
-    # decide the next step.
-    return "get_menu"
+    # After providing recommendations, we always wait for the user's response.
+    return "human"
 
 
 def route_after_recommendations(state: AgentState) -> str:

@@ -6,6 +6,8 @@ from langgraph.checkpoint.sqlite import SqliteSaver
 from langchain_core.messages import HumanMessage
 from graph.graph import builder
 import json
+from contextlib import ExitStack
+import atexit
 
 app = Flask(__name__)
 CORS(app)
@@ -18,7 +20,14 @@ os.environ['GOOGLE_APPLICATION_CREDENTIALS'] = os.environ.get('GOOGLE_APPLICATIO
 os.environ['LINE_CHANNEL_ACCESS_TOKEN'] = os.environ.get('LINE_CHANNEL_ACCESS_TOKEN', 'YOUR_LINE_CHANNEL_ACCESS_TOKEN')
 
 # --- LangGraph Setup ---
-memory = SqliteSaver.from_conn_string(":memory:")
+stack = ExitStack()
+# Use a file-based sqlite database for persistence.
+# This ensures that conversation state is maintained across requests.
+db_path = os.path.join(os.path.dirname(__file__), "checkpointer.sqlite")
+memory = stack.enter_context(SqliteSaver.from_conn_string(db_path))
+# Register the close method to be called when the application exits.
+atexit.register(stack.close)
+
 graph = builder.compile(checkpointer=memory)
 
 
@@ -105,4 +114,3 @@ def health_check():
 if __name__ == '__main__':
     # It's recommended to run Flask with a production-ready WSGI server like Gunicorn
     app.run(host='0.0.0.0', port=5000, debug=True)
-
