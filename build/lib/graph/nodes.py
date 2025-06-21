@@ -1,18 +1,24 @@
 import json
-from typing import Literal
-from langchain_core.messages import AIMessage, ToolCall
-from langgraph.prebuilt import ToolNode
+from typing import Literal, List
 
-from config import client, AZURE_DEPLOYMENT_NAME, tools_for_openai
-from graph.tools.tools_definition import tool_executor # (已更新) 使用 tool_executor
+# 【修改】匯入 ToolMessage，因為我們需要手動建立它
+from langchain_core.messages import AIMessage, ToolCall, BaseMessage, ToolMessage
+
+# 【移除】ToolNode 不存在於您使用的 langgraph 版本中
+# from langgraph.prebuilt import ToolNode
+
+from config import client, AZURE_OPENAI_DEPLOYMENT_NAME, tools_for_openai
+# 【修改】從 tools_definition 匯入我們手動建立的 tool_map
+from graph.tools.tools_definition import tool_map
 from .state import AgentState
 
-# 定義代理節點 (Agent Node)
+
+# 定義代理節點 (Agent Node) - 這個函式維持原樣，不需修改
 def agent_node(state: AgentState):
     """
     代理的核心節點，決定下一步是呼叫工具還是回覆使用者。
     """
-    if not client or not AZURE_DEPLOYMENT_NAME:
+    if not client or not AZURE_OPENAI_DEPLOYMENT_NAME:
         raise ValueError("Azure OpenAI client 或 AZURE_DEPLOYMENT_NAME 未設定。")
 
     # 將 LangChain 的訊息格式轉換為 OpenAI API 需要的字典格式
@@ -20,7 +26,7 @@ def agent_node(state: AgentState):
 
     # 呼叫 Azure OpenAI API
     response = client.chat.completions.create(
-        model=AZURE_DEPLOYMENT_NAME,
+        model=AZURE_OPENAI_DEPLOYMENT_NAME,
         messages=api_messages,
         tools=tools_for_openai,
         tool_choice="auto"
@@ -46,11 +52,55 @@ def agent_node(state: AgentState):
     return {"messages": [AIMessage(content=response_message.content or "", tool_calls=tool_calls)]}
 
 
-# (已更新) 定義工具節點，使用從 tools_definition 導入的 tool_executor
-tool_node = ToolNode(tool_executor)
+# 【修改】將原本的 ToolNode 物件替換為一個功能完全相同的自訂函式節點
+def tool_node(state: AgentState) -> dict:
+    """
+    這是一個自訂的工具執行節點。
+    它會檢查最新的訊息是否包含工具呼叫，並使用 tool_map 來執行它們。
+    """
+    last_message = state['messages'][-1]
+
+    # 確保最後一則訊息是 AIMessage 且有工具呼叫
+    if not isinstance(last_message, AIMessage) or not last_message.tool_calls:
+        return {}
+
+    tool_invocations = last_message.tool_calls
+    tool_outputs: List[BaseMessage] = []
+
+    # 遍歷所有的工具呼叫請求
+    for tool_call in tool_invocations:
+        tool_name = tool_call['name']
+
+        # 使用 tool_map 來查找對應的工具
+        if tool_name in tool_map:
+            tool_to_call = tool_map[tool_name]
+
+            try:
+                # 執行工具，並傳入參數
+                output = tool_to_call.invoke(tool_call['args'])
+                # 將結果格式化為 ToolMessage
+                tool_outputs.append(ToolMessage(
+                    content=str(output),
+                    tool_call_id=tool_call['id']
+                ))
+            except Exception as e:
+                # 如果工具執行出錯，也回傳錯誤訊息
+                tool_outputs.append(ToolMessage(
+                    content=f"Error executing tool {tool_name}: {e}",
+                    tool_call_id=tool_call['id']
+                ))
+        else:
+            # 如果找不到工具
+            tool_outputs.append(ToolMessage(
+                content=f"Tool '{tool_name}' not found.",
+                tool_call_id=tool_call['id']
+            ))
+
+    # 將工具執行的結果回傳，以便加入到對話歷史中
+    return {"messages": tool_outputs}
 
 
-# 定義路由邏輯 (Routing Logic)
+# 定義路由邏輯 (Routing Logic) - 這個函式維持原樣，不需修改
 def should_continue(state: AgentState) -> Literal["tools", "__end__"]:
     """
     決定在代理節點之後的走向。
@@ -61,4 +111,3 @@ def should_continue(state: AgentState) -> Literal["tools", "__end__"]:
     if isinstance(last_message, AIMessage) and last_message.tool_calls:
         return "tools"
     return "__end__"
-

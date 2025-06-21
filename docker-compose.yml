@@ -5,53 +5,45 @@ services:
   postgres_db:
     image: postgres:15
     container_name: postgres_db
-    environment:
-      POSTGRES_USER: admin
-      POSTGRES_PASSWORD: admin
-      POSTGRES_DB: admin
+    env_file:
+      - ./.env # Reads variables from .env file
     volumes:
-      # 將資料庫資料掛載到本機的 postgres-data 資料夾
       - ./postgres-data:/var/lib/postgresql/data
     ports:
-      # 將容器的 5432 port 映射到本機的 5432 port
-      - "5432:5432"
+      - "5433:5432"
     networks:
       - app-network
     restart: unless-stopped
 
   # MongoDB 資料庫服務
   mongo_db:
-    image: mongo:latest
+    image: mongo:8.0 # Pinned to a specific version
     container_name: mongo_db
-    environment:
-      MONGO_INITDB_ROOT_USERNAME: admin
-      MONGO_INITDB_ROOT_PASSWORD: admin
+    env_file:
+      - ./.env # Reads variables from .env file
     volumes:
-      # 將資料庫資料掛載到本機的 mongo-data 資料夾
       - ./mongo-data:/data/db
     ports:
-      # 將容器的 27017 port 映射到本機的 27017 port
       - "27017:27017"
     networks:
       - app-network
     restart: unless-stopped
 
-  # 後端 (Flask) 服務
+  # 後端 (Flask) 服務 (使用 uv)
   backend:
     build:
       context: .
       dockerfile: Dockerfile.backend
     container_name: backend
     env_file:
-      # 使用我們專為 Docker 建立的環境變數檔案
       - ./.env
     volumes:
-      # 掛載整個專案目錄到容器的 /app，實現熱加載
+      # Mounts the project, but protects the container's .venv
       - .:/app
+      - /app/.venv
     ports:
-      - "5000:5000"
+      - "5001:5000"
     depends_on:
-      # 確保資料庫服務先啟動
       - postgres_db
       - mongo_db
     networks:
@@ -65,9 +57,7 @@ services:
       dockerfile: Dockerfile.frontend
     container_name: frontend
     volumes:
-      # 掛載前端程式碼，實現熱加載
       - ./frontend:/app/frontend
-      # 建立一個匿名 volume 來防止本機的 node_modules 覆蓋容器中的 node_modules
       - /app/frontend/node_modules
     ports:
       - "5173:5173"
@@ -81,4 +71,3 @@ services:
 networks:
   app-network:
     driver: bridge
-

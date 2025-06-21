@@ -7,8 +7,11 @@ from typing import List, Dict
 from langgraph.checkpoint.sqlite import SqliteSaver  # 引入 SqliteSaver
 from apscheduler.schedulers.background import BackgroundScheduler
 from langgraph.checkpoint.mongodb import MongoDBSaver
+from langchain_openai import AzureChatOpenAI
+from langchain_core.utils.function_calling import convert_to_openai_tool
+from graph.tools.tools_definition import tools
 
-from config import client, AZURE_OPENAI_DEPLOYMENT_NAME, MONGODB_URI, MONGODB_DB_NAME, MONGODB_COLLECTION_NAME, tools_for_openai
+from config import AZURE_OPENAI_DEPLOYMENT_NAME, MONGODB_URI, MONGODB_DB_NAME, MONGODB_COLLECTION_NAME
 from graph.graph import create_graph
 from sql.models.model import init_db  # 引入初始化資料庫的函式
 from graph.tools.db_tools import check_and_remind_orders, tally_and_notify_orders
@@ -16,6 +19,14 @@ from graph.tools.db_tools import check_and_remind_orders, tally_and_notify_order
 # --- 初始化 ---
 app = Flask(__name__)
 CORS(app, resources={r"/api/*": {"origins": "*"}})
+
+# 初始化 Azure OpenAI Client
+client = AzureChatOpenAI(
+    azure_deployment=AZURE_OPENAI_DEPLOYMENT_NAME,
+    temperature=0,
+)
+# 將 LangChain tool 轉換為 OpenAI 格式
+tools_for_openai = [convert_to_openai_tool(tool) for tool in tools]
 
 # 初始化資料庫
 init_db()
@@ -31,7 +42,7 @@ memory = MongoDBSaver.from_uri(
 
 # --- LangGraph App ---
 # 建立帶有記憶體配置的 Graph
-app_graph = create_graph().with_config(checkpointer=memory)
+app_graph = create_graph(client, tools_for_openai).with_config(checkpointer=memory)
 
 # --- 定時任務 ---
 scheduler = BackgroundScheduler()

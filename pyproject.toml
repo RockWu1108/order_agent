@@ -28,8 +28,9 @@ dependencies = [
     "google-auth-oauthlib==1.2.2",
     "googleapis-common-protos==1.70.0",
     "googlemaps==4.10.0",
-    "gspread",
+    "gspread==6.1.2",
     "greenlet==3.2.3",
+    "gunicorn==22.0.0", # <-- Added this line with version
     "h11==0.16.0",
     "httpcore==1.0.9",
     "httplib2==0.22.0",
@@ -42,13 +43,14 @@ dependencies = [
     "jsonpointer==3.0.0",
     "langchain==0.3.3",
     "langchain-core==0.3.63",
+    "langchain-openai",
     "langchain-text-splitters==0.3.8",
-    "langgraph==0.3.19",
-    "langgraph-checkpoint==2.1.0",
-    "langgraph-checkpoint-mongodb==0.1.4",  # Added langgraph-checkpoint-mongodb
-    "langgraph-checkpoint-sqlite==2.0.10",
-    "langgraph-prebuilt==0.1.8",
-    "langgraph-sdk==0.1.70",
+    "langgraph==0.3.1",  # <-- 指定您要的版本
+    "langgraph-checkpoint", # <-- 移除版本鎖定
+    "langgraph-checkpoint-mongodb", # <-- 移除版本鎖定
+    "langgraph-checkpoint-sqlite", # <-- 移除版本鎖定
+    "langgraph-prebuilt", # <-- 移除版本鎖定
+    "langgraph-sdk", # <-- 移除版本鎖定
     "langsmith==0.1.147",
     "markupsafe==3.0.2",
     "multidict==6.5.0",
@@ -88,12 +90,3 @@ dependencies = [
     "yarl==1.20.1",
     "zstandard==0.23.0",
 ]
-
-[tool.setuptools.packages.find]
-include = ["graph*", "sql*", "utils*"] # 指定要包含的包
-# 如果 app.py 和 config.py 也需要作为模块被打包，可以考虑将它们移到src目录下或使用py_modules
-# py_modules = ["app", "config"]
-
-[build-system]
-requires = ["setuptools", "wheel"]
-build-backend = "setuptools.build_meta"

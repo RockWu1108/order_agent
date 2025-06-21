@@ -1,0 +1,10 @@
+# .dockerignore
+
+# Python
+.venv
+*.pyc
+__pycache__/
+
+# IDE / Editor settings
+.vscode/
+.idea/

@@ -1,5 +1,4 @@
-
-import { GoogleGenAI, GenerateContentResponse } from "@google/genai";
+import { GoogleGenAI } from "@google/genai";
 import { FoodItem, PreferenceFilters, GeminiFoodRecommendation } from '../types.ts';
 import { GEMINI_MODEL_NAME } from '../constants.ts';
 
@@ -54,7 +53,7 @@ export const fetchFoodRecommendations = async (filters: PreferenceFilters): Prom
   const prompt = generatePrompt(filters);
 
   try {
-    const response: GenerateContentResponse = await ai.models.generateContent({
+    const result = await ai.models.generateContent({
         model: GEMINI_MODEL_NAME,
         contents: prompt,
         config: {
@@ -63,8 +62,8 @@ export const fetchFoodRecommendations = async (filters: PreferenceFilters): Prom
         }
     });
 
-    let jsonStr = response.text.trim();
-    
+    let jsonStr = result.text().trim();
+
     // Remove potential markdown fences (e.g., ```json ... ``` or ``` ... ```)
     const fenceRegex = /^```(?:json)?\s*\n?(.*?)\n?\s*```$/s;
     const match = jsonStr.match(fenceRegex);
@@ -80,7 +79,7 @@ export const fetchFoodRecommendations = async (filters: PreferenceFilters): Prom
         if (arrayMatch && arrayMatch[1]) {
             jsonStr = arrayMatch[1];
         } else {
-            console.error("Gemini response is not a JSON array:", response.text);
+            console.error("Gemini response is not a JSON array:", result.text());
             throw new Error("The AI returned data in an unexpected format. It might be plain text instead of JSON. Try rephrasing your search.");
         }
     }

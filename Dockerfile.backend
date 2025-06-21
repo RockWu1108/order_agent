@@ -1,28 +1,24 @@
-# 使用官方的 Python 3.11 slim 作為基礎映像檔
-FROM python:3.11-slim
+# Use the official Python 3.13 slim image to match your environment
+FROM python:3.13-slim
 
-# 安裝 Poetry，用於管理 Python 依賴
-RUN pip install poetry
+# Install build tools needed for some Python packages
+RUN apt-get update && apt-get install -y build-essential
 
-# 設定工作目錄
+# Set the working directory in the container
 WORKDIR /app
 
-# 複製依賴定義檔案
-COPY pyproject.toml poetry.lock* ./
+# Copy only the requirements file first to leverage Docker layer caching
+COPY requirements.txt ./
 
-# 使用 Poetry 安裝依賴，--no-root 表示不安裝專案本身，因為我們會掛載原始碼
-RUN poetry install --no-root --no-interaction --no-ansi
+# Install dependencies using pip
+RUN pip install --no-cache-dir -r requirements.txt
 
-# 將整個後端應用程式的程式碼複製到容器中
-# 雖然我們會掛載 volume，但這一步驟有助於快取和映像檔的完整性
+# Copy the rest of the application code
 COPY . .
 
-# 公開 Flask 應用程式運行的端口
+# Expose the port the app runs on
 EXPOSE 5000
 
-# 容器啟動時執行的指令
-# 使用 gunicorn 作為 WSGI 伺服器，更適合生產環境
-# --bind 0.0.0.0:5000 讓容器外的請求可以連進來
-# --workers 4 根據需求調整
-# app:app 指的是 app.py 檔案中的 app 物件
-CMD ["poetry", "run", "gunicorn", "--bind", "0.0.0.0:5000", "--workers", "4", "app:app"]
+# (MODIFIED) Command to run the application
+# First, print the DATABASE_URL to the console for debugging, then run the app.
+CMD ["sh", "-c", "echo \"---> Attempting to start Gunicorn...\" && echo \"---> DATABASE_URL from container environment: '$DATABASE_URL'\" && gunicorn --bind 0.0.0.0:5000 --workers 4 app:app"]

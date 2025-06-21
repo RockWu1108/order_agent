@@ -5,13 +5,7 @@ from langchain_core.tools import tool
 # 引入 LINE Bot SDK
 from linebot.v3 import WebhookHandler
 from linebot.v3.exceptions import InvalidSignatureError
-from linebot.v3.messaging import (
-    Configuration,
-    ApiClient,
-    MessagingApi,
-    PushMessageRequest,
-    TextMessage
-)
+from linebot.v3.messaging import (Configuration,ApiClient,MessagingApi,PushMessageRequest,TextMessage)
 
 from config import LINE_CHANNEL_ACCESS_TOKEN, LINE_TARGET_ID
 
