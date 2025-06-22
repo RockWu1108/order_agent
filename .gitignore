@@ -1,6 +1,10 @@
 google_credentials.json
 .env
-migrations/
-mongo_data/
-postgres_data/
-flaskpjoject.egg-info/
+/flaskpjoject.egg-info/
+/mongo-data/
+/postgres-data/
+ch
+/checkpointer.sqlite
+/checkpointer.sqlite-wal
+/checkpointer.sqlite-shm
+/credentials.json
