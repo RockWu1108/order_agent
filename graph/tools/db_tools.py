@@ -194,6 +194,8 @@ def tally_and_notify_orders():
                 email_summary_html += "</table>"
 
             # 3. 發送統計結果給開團者 (Email + LINE)
+            logging.info(f"Tally summary for LINE for order {order.id}:\n{line_summary_text}")
+            logging.info(f"Tally summary for Email for order {order.id}:\n{email_summary_html}")
             send_email_tool.invoke({
                 "recipients": [OWNER_EMAIL],
                 "subject": f"訂餐統計完成 - {order.restaurant_name}",

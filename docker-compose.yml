@@ -9,6 +9,8 @@ services:
     container_name: food-agent-backend
     ports:
       - "5001:5000"
+    env_file:
+      - .env  # <--- 這行設定會告訴 Docker 去讀取 .env 檔案
     volumes:
       - .:/app
       # IMPORTANT: Mount your Google Cloud credentials file into the container
@@ -21,7 +23,7 @@ services:
       # Set environment variables for API keys and tokens
       - GOOGLE_APPLICATION_CREDENTIALS=/app/credentials.json
       - LINE_CHANNEL_ACCESS_TOKEN=YOUR_LINE_CHANNEL_ACCESS_TOKEN # Replace with your LINE token
-      - Maps_API_KEY=GOOGLE_API_KEY # <--- 新增這一行，並換成你的金鑰
+      - GOOGLE_API_KEY=GOOGLE_API_KEY # <--- 新增這一行，並換成你的金鑰
 
       - CELERY_BROKER_URL=redis://redis:6379/0
       - CELERY_RESULT_BACKEND=redis://redis:6379/0

@@ -84,7 +84,7 @@ def tally_and_notify_task(sheet_url: str, title: str, notification_channels: dic
         if emails and isinstance(emails, list):
             print(f"Sending notification to emails: {emails}")
             email_subject = f"訂單統計結果: {title}"
-            send_email(emails, email_subject, summary)
+            send_email_tool(emails, email_subject, summary)
 
         return f"Task completed successfully for '{title}'. Summary sent."
 

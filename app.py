@@ -1,6 +1,7 @@
 import os
 import uuid
 import logging
+import sys
 from flask import Flask, request, jsonify, Response
 from flask_cors import CORS
 from langgraph.checkpoint.sqlite import SqliteSaver
@@ -14,7 +15,18 @@ app = Flask(__name__)
 CORS(app)
 
 # --- Logging Configuration ---
-logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
+# When using 'flask run', it can interfere with logging configuration.
+# It's more reliable to get the root logger, clear its handlers, and add our own.
+logger = logging.getLogger()
+logger.setLevel(logging.INFO)
+logger.handlers.clear()
+handler = logging.StreamHandler(sys.stdout)
+handler.setFormatter(logging.Formatter(
+    '%(asctime)s - %(name)s - %(levelname)s - %(message)s'
+))
+logger.addHandler(handler)
+
+logging.info("Logging has been re-configured to output to stdout.")
 
 # --- Configuration ---
 # It's recommended to load these from environment variables or a secure config file

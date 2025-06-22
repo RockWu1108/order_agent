@@ -25,7 +25,7 @@ def send_email_tool(recipients: List[str], subject: str, body: str) -> str:
     message.attach(MIMEText(body, "html")) # 使用 HTML 格式
 
     try:
-        logging.info(f"[Email Tool] Sending email to {len(recipients)} recipients...")
+        logging.info(f"[Email Tool] Sending email to {len(recipients)} recipients with subject: '{subject}'")
         server = smtplib.SMTP(SMTP_SERVER, int(SMTP_PORT))
         server.starttls()
         server.login(SMTP_USERNAME, SMTP_PASSWORD)
