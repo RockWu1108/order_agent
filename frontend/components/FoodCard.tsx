@@ -2,7 +2,6 @@ import React from 'react';
 import { FoodItem } from '../types';
 import StarRating from './StarRating';
 
-// 定義 FoodCard 元件所需的屬性
 interface FoodCardProps {
   item: FoodItem;
   onSelect: (name: string) => void;
@@ -18,6 +17,11 @@ const FoodCard: React.FC<FoodCardProps> = ({ item, onSelect }) => {
       onClick={() => onSelect(item.name)}
     >
       <div className="p-4">
+        {/* --- 新增的元素：顯示餐廳種類 --- */}
+        <p className="text-xs font-semibold text-orange-500 uppercase tracking-wide mb-1" title={item.cuisine}>
+          {item.cuisine}
+        </p>
+        {/* --- 新增結束 --- */}
         <h3 className="text-lg font-bold text-gray-900 truncate" title={item.name}>{item.name}</h3>
         <p className="text-sm text-gray-500 mt-1 truncate" title={item.address}>{item.address}</p>
         <div className="flex items-center justify-between mt-4">
@@ -28,7 +32,6 @@ const FoodCard: React.FC<FoodCardProps> = ({ item, onSelect }) => {
        <div className="px-4 pb-4">
          <button
             onClick={(e) => {
-                // 防止事件冒泡觸發卡片的 onClick
                 e.stopPropagation();
                 onSelect(item.name);
             }}

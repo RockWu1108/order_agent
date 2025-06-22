@@ -1,5 +1,6 @@
 # graph/tools/db_tools.py
 
+import logging
 import requests
 from datetime import datetime, timedelta
 from typing import List
@@ -27,16 +28,19 @@ def get_department_emails_tool(department_name: str) -> List[str] | str:
     根據部門名稱，從資料庫取得該部門所有成員的 Email 列表。
     Use this tool to get a list of all member emails for a given department name from the database.
     """
-    print(f"🔧 [DB Tool] Fetching emails for department: {department_name}")
+    logging.info(f"[DB Tool] Fetching emails for department: {department_name}")
     db: Session = SessionLocal()
     try:
         department = db.query(Department).filter(Department.name == department_name).first()
         if not department:
+            logging.warning(f"Department '{department_name}' not found.")
             return f"Error: Department '{department_name}' not found."
         if not department.users:
+            logging.info(f"Department '{department_name}' has no members.")
             return f"Info: Department '{department_name}' has no members."
 
         emails = [user.email for user in department.users]
+        logging.info(f"Found {len(emails)} emails for department '{department_name}'.")
         return emails
     finally:
         db.close()
@@ -55,7 +59,7 @@ def notify_department_and_schedule_tasks_tool(
     Saves order information to the database, sends an email notification to the specified department,
     and schedules a task to tally the results at the deadline.
     """
-    print(f"🔧 [DB Tool] Notifying {department_name} for order '{restaurant_name}'")
+    logging.info(f"[DB Tool] Notifying {department_name} for order '{restaurant_name}'")
     db: Session = SessionLocal()
     try:
         # 1. 解析截止時間
@@ -73,6 +77,7 @@ def notify_department_and_schedule_tasks_tool(
         )
         db.add(new_order)
         db.commit()
+        logging.info(f"Order '{new_order.id}' saved to database.")
 
         # 3. 取得部門成員 Email 並發送通知信
         emails = get_department_emails_tool.invoke({"department_name": department_name})
@@ -93,12 +98,15 @@ def notify_department_and_schedule_tasks_tool(
             line_message = f"✅ 訂單建立成功\n餐廳：{restaurant_name}\n通知部門：{department_name}"
             send_line_message.invoke({"message_text": line_message})
 
+            logging.info(f"Successfully notified {len(emails)} members of {department_name}.")
             return f"Successfully scheduled task, sent email to {len(emails)} members, and sent a LINE confirmation."
         else:
+            logging.warning(f"Task scheduled, but failed to send email notifications. Reason: {emails}")
             return f"Scheduled task, but failed to send email notifications. Reason: {emails}"
 
     except Exception as e:
         db.rollback()
+        logging.error(f"Error in notify_department_and_schedule_tasks_tool: {e}", exc_info=True)
         return f"An error occurred: {e}"
     finally:
         db.close()
@@ -118,10 +126,11 @@ def check_and_remind_orders():
             GroupOrder.deadline > now,
             GroupOrder.deadline <= reminder_window
         ).all()
+        logging.info(f"[Reminder] Found {len(upcoming_orders)} upcoming orders to remind.")
 
         for order in upcoming_orders:
             # 此處可以加入發送 LINE 或 Email 提醒的邏輯
-            print(f"🔔 [Reminder] Order '{order.restaurant_name}' is due at {order.deadline}.")
+            logging.info(f"[Reminder] Sending reminder for order '{order.restaurant_name}' due at {order.deadline}.")
             reminder_message = f"🔔 訂餐提醒\n餐廳「{order.restaurant_name}」的訂單將在一小時後截止，還沒填單的同仁請盡快處理喔！"
             send_line_message.invoke({"message_text": reminder_message})
 
@@ -145,18 +154,18 @@ def tally_and_notify_orders():
     if not expired_orders:
         return
 
-    print(f"📊 [Tallying] Found {len(expired_orders)} expired orders to process.")
+    logging.info(f"[Tallying] Found {len(expired_orders)} expired orders to process.")
 
     try:
         gc = gspread.service_account(filename='google_credentials.json')
     except Exception as e:
-        print(f"Error initializing gspread: {e}")
+        logging.error(f"Error initializing gspread: {e}", exc_info=True)
         db.close() #<-- Added this line
         return
 
     for order in expired_orders:
         try:
-            print(f"Processing order: {order.restaurant_name}")
+            logging.info(f"Processing order: {order.restaurant_name} (ID: {order.id})")
             # 1. 從 Google Sheet 讀取回覆
             sheet = gc.open_by_key(order.response_sheet_id)
             worksheet = sheet.sheet1
@@ -191,7 +200,7 @@ def tally_and_notify_orders():
                 "body": email_summary_html
             })
             send_line_message.invoke({"message_text": line_summary_text})
-            print(f"Sent tally summary to {OWNER_EMAIL} and LINE.")
+            logging.info(f"Sent tally summary to {OWNER_EMAIL} and LINE for order {order.id}.")
 
             # 4. 發送確認信給所有填寫者
             if participant_emails:
@@ -207,14 +216,15 @@ def tally_and_notify_orders():
                     "subject": confirmation_subject,
                     "body": confirmation_body
                 })
-                print(f"Sent confirmation to {len(unique_participant_emails)} participants.")
+                logging.info(f"Sent confirmation to {len(unique_participant_emails)} participants for order {order.id}.")
 
             # 5. 更新訂單狀態
             order.status = 'closed'
             db.commit()
+            logging.info(f"Order {order.id} status updated to 'closed'.")
 
         except Exception as e:
-            print(f"Error processing order {order.id}: {e}")
+            logging.error(f"Error processing order {order.id}: {e}", exc_info=True)
             db.rollback()
             continue
 

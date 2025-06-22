@@ -1,16 +1,20 @@
 import os
 import uuid
+import logging
 from flask import Flask, request, jsonify, Response
 from flask_cors import CORS
 from langgraph.checkpoint.sqlite import SqliteSaver
 from langchain_core.messages import HumanMessage
-from graph.graph import builder
+from graph.graph import workflow
 import json
 from contextlib import ExitStack
 import atexit
 
 app = Flask(__name__)
 CORS(app)
+
+# --- Logging Configuration ---
+logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
 
 # --- Configuration ---
 # It's recommended to load these from environment variables or a secure config file
@@ -28,7 +32,7 @@ memory = stack.enter_context(SqliteSaver.from_conn_string(db_path))
 # Register the close method to be called when the application exits.
 atexit.register(stack.close)
 
-graph = builder.compile(checkpointer=memory)
+graph = workflow.compile(checkpointer=memory)
 # 畫圖
 graph.get_graph().draw_mermaid_png(output_file_path="graph.png")
 
@@ -57,11 +61,13 @@ def chat():
     data = request.json
     human_input = data.get("message")
     thread_id = data.get("thread_id")
+    logging.info(f"Received request for thread_id: {thread_id} with message: {human_input}")
 
     # --- Conversation Management ---
     # If no thread_id is provided, start a new conversation
     if not thread_id:
         thread_id = str(uuid.uuid4())
+        logging.info(f"New conversation started with thread_id: {thread_id}")
 
     # Configuration for the graph invocation
     config = {"configurable": {"thread_id": thread_id}}
@@ -79,6 +85,7 @@ def chat():
             for event in graph.stream(inputs, config, stream_mode="values"):
                 # The event is the full state of the graph after each step
                 last_message = event["messages"][-1]
+                logging.info(f"Streaming event for thread_id {thread_id}: {last_message.pretty_repr()}")
 
                 # Check if the last message has content and send it
                 if last_message and last_message.content:
@@ -99,7 +106,7 @@ def chat():
             yield f"data: {json.dumps(end_event)}\n\n"
 
         except Exception as e:
-            print(f"Error during stream: {e}")
+            logging.error(f"Error during stream for thread_id {thread_id}: {e}", exc_info=True)
             error_event = {"type": "error", "content": str(e)}
             yield f"data: {json.dumps(error_event)}\n\n"
 

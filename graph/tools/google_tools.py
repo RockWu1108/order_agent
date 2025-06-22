@@ -2,6 +2,7 @@
 
 import os
 import json
+import logging
 import googlemaps  # 導入 googlemaps 函式庫
 from datetime import datetime
 from google.oauth2.service_account import Credentials
@@ -28,7 +29,7 @@ try:
     gspread_client = gspread.service_account(filename=creds_path)
 
 except FileNotFoundError:
-    print("警告：找不到 Google 服務帳號憑證檔案。Google Forms/Sheets 相關工具將無法運作。")
+    logging.warning("找不到 Google 服務帳號憑證檔案。Google Forms/Sheets 相關工具將無法運作。")
     creds = None
     forms_service = None
     drive_service = None
@@ -41,7 +42,7 @@ try:
         raise ValueError("未設定 Maps_API_KEY 環境變數。")
     gmaps = googlemaps.Client(key=gmaps_api_key)
 except ValueError as e:
-    print(f"警告：{e} Google Maps 工具將無法運作。")
+    logging.warning(f"{e} Google Maps 工具將無法運作。")
     gmaps = None
 
 
@@ -55,42 +56,59 @@ def search_Maps(query: str, location: str = "25.0553, 121.6134") -> str:
     returning a list of up to 5 results.
     """
     if not gmaps:
+        logging.error("Google Maps API is not initialized.")
         return json.dumps({"error": "Google Maps API 未被正確初始化。請檢查 API 金鑰設定。"})
 
-    print(f"正在透過 Google Maps API 搜尋: {query}")
+    logging.info(f"Searching Google Maps API with query: '{query}' near {location}")
 
     try:
-        # 使用 Places API 的 Text Search 功能
-        # 'location' 參數提供一個經緯度，讓搜尋結果偏向該區域
-        # 'radius' 參數（單位為公尺）定義搜尋範圍
         places_result = gmaps.places(
             query=query,
             language='zh-TW',
-            location=location,  # 預設為南港區的經緯度
-            radius=5000  # 搜尋半徑 5 公里
+            location=location,
+            radius=5000
         )
 
         results_to_return = []
         # Google API 最多一次可能回傳 20 個結果，我們只取前 5 個
         for place in places_result.get('results', [])[:5]:
+            # --- 新增的邏輯：提取並格式化店家種類 ---
+            place_types = place.get('types', [])
+            # 過濾掉比較通用的類型，以找到更精確的描述
+            non_generic_types = [
+                t for t in place_types if t not in [
+                    'point_of_interest', 'establishment', 'store', 'food', 'restaurant'
+                ]
+            ]
+            # 從篩選後的類型中取第一個，如果沒有，則根據查詢關鍵字給一個預設值
+            if non_generic_types:
+                cuisine_type = non_generic_types[0].replace('_', ' ').title()
+            elif '飲料' in query or '茶' in query or '咖啡' in query:
+                cuisine_type = '飲料輕食'
+            else:
+                cuisine_type = '美食餐廳'
+            # --- 新增邏輯結束 ---
+
             results_to_return.append({
                 "name": place.get('name', 'N/A'),
                 "rating": place.get('rating', 0),
-                "address": place.get('vicinity', place.get('formatted_address', 'N/A')),  # 'vicinity' 是較簡潔的地址
-                "place_id": place.get('place_id')  # place_id 未來可用於獲取更詳細的店家資訊
+                "address": place.get('vicinity', place.get('formatted_address', 'N/A')),
+                "place_id": place.get('place_id'),
+                "cuisine": cuisine_type  # 將新的「種類」欄位加入回傳的字典中
             })
 
         if not results_to_return:
+            logging.info(f"No results found for query: '{query}'")
             return json.dumps({"message": "很抱歉，在附近找不到符合條件的店家。"})
 
-        # 工具的最終輸出必須是一個 JSON 字串
+        logging.info(f"Found {len(results_to_return)} results for query: '{query}'")
         return json.dumps(results_to_return, ensure_ascii=False)
 
     except googlemaps.exceptions.ApiError as e:
-        print(f"Google Maps API 發生錯誤: {e}")
+        logging.error(f"Google Maps API error: {e}", exc_info=True)
         return json.dumps({"error": f"API 錯誤: {e.status}"})
     except Exception as e:
-        print(f"搜尋 Google Maps 時發生未知錯誤: {e}")
+        logging.error(f"Unknown error during Google Maps search: {e}", exc_info=True)
         return json.dumps({"error": "搜尋時發生未知錯誤。"})
 
 
@@ -101,20 +119,22 @@ def create_google_form(title: str, description: str, menu_items: list) -> str:
     Creates a new Google Form for ordering, linked to a new Google Sheet.
     """
     if not forms_service or not gspread_client:
+        logging.error("Google API services are not initialized.")
         return json.dumps({"error": "Google API 服務未被正確初始化。請檢查憑證檔案。"})
 
     try:
         # 1. 建立 Google Sheet 以接收回覆
+        logging.info(f"Creating new Google Sheet with title: '{title} - 訂單回應'")
         sheet = gspread_client.create(f"{title} - 訂單回應")
         sheet_url = f"https://docs.google.com/spreadsheets/d/{sheet.id}"
-        print(f"成功建立回應表單: {sheet_url}")
+        logging.info(f"Successfully created response sheet: {sheet_url}")
 
         # 2. 建立 Google Form
         new_form = {"info": {"title": title, "documentTitle": title}}
         created_form = forms_service.forms().create(body=new_form).execute()
         form_id = created_form["formId"]
         form_url = created_form["responderUri"]
-        print(f"成功建立 Google Form: {form_url}")
+        logging.info(f"Successfully created Google Form: {form_url}")
 
         # 3. 將表單的回應目標設定為剛剛建立的 Sheet
         # Forms API v1 無法直接設定回應目的地，但我們可以手動建立關聯。
@@ -147,7 +167,7 @@ def create_google_form(title: str, description: str, menu_items: list) -> str:
         return json.dumps({"form_url": form_url, "sheet_url": sheet_url}, ensure_ascii=False)
 
     except Exception as e:
-        print(f"建立 Google Form 或 Sheet 時發生錯誤: {e}")
+        logging.error(f"Error creating Google Form or Sheet: {e}", exc_info=True)
         return json.dumps({"error": str(e)}, ensure_ascii=False)
 
 
@@ -157,7 +177,7 @@ def get_menu_from_url(url: str) -> str:
     (佔位符) 從網站抓取菜單。真實情境會使用 BeautifulSoup 或 Scrapy。
     Placeholder function to scrape a menu from a website.
     """
-    print(f"正在從 {url} 抓取菜單...")
+    logging.info(f"(Placeholder) Scraping menu from {url}...")
     if "pizzahut" in url:
         return "經典口味: 夏威夷披薩, 海鮮披薩, 超級總匯披薩. 副食: BBQ烤雞, 薯星星."
     elif "coco" in url or "comebuy" in url or "wutea" in url:
@@ -171,16 +191,19 @@ def read_google_sheet(sheet_url: str) -> pd.DataFrame:
     Reads all data from a given Google Sheet URL and returns it as a Pandas DataFrame.
     """
     if not gspread_client:
+        logging.error("gspread_client is not initialized.")
         return pd.DataFrame()
     try:
+        logging.info(f"Reading Google Sheet from URL: {sheet_url}")
         sheet = gspread_client.open_by_url(sheet_url)
         worksheet = sheet.get_worksheet(0)
         data = worksheet.get_all_records()
         df = pd.DataFrame(data)
+        logging.info(f"Successfully read {len(df)} rows from the sheet.")
         return df
     except gspread.exceptions.SpreadsheetNotFound:
-        print(f"錯誤: 找不到試算表 {sheet_url}。請確認 URL 是否正確且服務帳號有權限存取。")
+        logging.error(f"Spreadsheet not found at {sheet_url}. Check URL and permissions.")
         return pd.DataFrame()
     except Exception as e:
-        print(f"讀取試算表時發生錯誤: {e}")
+        logging.error(f"Error reading spreadsheet: {e}", exc_info=True)
         return pd.DataFrame()

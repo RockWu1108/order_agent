@@ -1,37 +1,52 @@
+# graph/conditional_edges.py
+
 from typing import Literal
 from graph.state import AgentState
+import logging
 
-def master_router(state: AgentState) -> Literal["action", "recommend", "create_form", "human", "end"]:
+# graph/conditional_edges.py
+from typing import Literal
+from graph.state import AgentState
+import logging
+
+
+def master_router(state: AgentState) -> Literal["provide_recommendations", "create_order_form", "call_model", "finish"]:
     """
-    一個統一的路由器，作為 agent 節點之後唯一的決策點。
+    根據 AgentState 中的資訊完整度來決定下一個節點，實現程式主導的流程。
     """
-    # 獲取模型最新的回應
-    last_message = state["messages"][-1]
+    logging.info("---EDGE: master_router---")
 
-    # 情況一：如果模型決定呼叫工具
-    if last_message.tool_calls:
-        # 如果是建立訂單的工具
-        if any(call.name == "create_order_form" for call in last_message.tool_calls):
-            return "create_form"
-        # 如果是其他工具 (例如 google_search)
-        return "action"
+    # 檢查是否已滿足搜尋餐廳的條件
+    has_search_info = bool(state.get("location") and state.get("food_type"))
+    has_recommendations = bool(state.get("recommendations"))
 
-    # 情況二：如果模型沒有呼叫工具，而是回覆文字
-    else:
-        # 檢查是否已收集到足夠資訊可以推薦餐廳
-        # 並且尚未給出推薦
-        if state.get("location") and state.get("food_type") and not state.get("recommendations"):
-            return "recommend"
+    if has_search_info and not has_recommendations:
+        logging.info("條件滿足：搜尋餐廳。路由至 provide_recommendations。")
+        return "provide_recommendations"
 
-        # 在所有其他情況下，模型都是在向使用者提問
-        # 因此我們應該暫停，等待使用者輸入
-        return "human"
+    # 檢查是否已滿足建立表單的條件
+    has_form_info = bool(state.get("selected_restaurant") and state.get("title") and state.get("deadline"))
+    is_form_created = bool(state.get("form_url"))
 
+    if has_form_info and not is_form_created:
+        logging.info("條件滿足：建立訂單。路由至 create_order_form。")
+        return "create_order_form"
+
+    # 如果有表單且有截止時間，可以增加路由到 schedule_task 的邏輯
+    if is_form_created and state.get("deadline"):
+        # 在這裡可以添加 "schedule_task" 的返回，並在 graph.py 中定義
+        # 為簡化，我們先讓它結束流程
+        logging.info("流程完成。")
+        return "finish"
+
+    # 如果以上條件都不滿足，則讓 AI 出面與使用者對話
+    logging.info("資訊不完整，讓 AI 詢問使用者。路由至 call_model。")
+    return "call_model"
 
 def route_to_recommendations(state: AgentState) -> Literal["get_menu", "human"]:
     """
     這個函式在提供推薦後，用來決定下一步。
-    (在新的簡化流程中，這個函式目前不會被使用，但予以保留)
+    (在目前的簡化流程中未使用，但予以保留)
     """
     last_human_message = ""
     for message in reversed(state['messages']):
@@ -48,9 +63,7 @@ def route_after_form_creation(state: AgentState) -> Literal["schedule_task", "en
     """
     在建立表單後，決定是否要安排摘要任務。
     """
-    if state.get("order_form_url"):
+    if state.get("form_url") and state.get("deadline"):
         return "schedule_task"
     else:
-        # 如果表單URL不存在，說明建立失敗，直接結束
         return "end"
-
