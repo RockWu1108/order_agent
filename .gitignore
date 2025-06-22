@@ -1,2 +1,6 @@
 google_credentials.json
 .env
+migrations/
+mongo_data/
+postgres_data/
+flaskpjoject.egg-info/
