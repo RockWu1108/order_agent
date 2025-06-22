@@ -10,8 +10,10 @@ from googleapiclient.discovery import build
 import gspread
 import pandas as pd
 from langchain_core.tools import tool
+from dotenv import load_dotenv
 
-from config import GOOGLE_API_KEY
+# 載入環境變數
+load_dotenv()
 
 # --- Configuration ---
 SCOPES = [
@@ -31,21 +33,28 @@ try:
     logging.info("Google Forms, Drive, and Sheets services initialized successfully.")
 
 except Exception as e:
-    logging.warning(f"Google服務初始化失敗: {e}。相關工具將無法運作。")
+    logging.warning(f"Google服務初始化失敗: {e}。相關工具將無法運C作。")
     creds = None
     forms_service = None
     drive_service = None
     gspread_client = None
 
-try:
-    gmaps_api_key = GOOGLE_API_KEY
-    if not gmaps_api_key:
-        raise ValueError("未設定 GOOGLE_API_KEY 環境變數。")
-    gmaps = googlemaps.Client(key=gmaps_api_key)
-    logging.info("Google Maps service initialized successfully.")
-except Exception as e:
-    logging.warning(f"{e} Google Maps 工具將無法運作。")
-    gmaps = None
+gmaps = None
+
+def get_gmaps_client():
+    """Lazily initialize the Google Maps client."""
+    global gmaps
+    if gmaps is None:
+        try:
+            gmaps_api_key = os.getenv("GOOGLE_API_KEY")
+            if not gmaps_api_key:
+                raise ValueError("未設定 GOOGLE_API_KEY 環境變數。")
+            gmaps = googlemaps.Client(key=gmaps_api_key)
+            logging.info("Google Maps service initialized successfully.")
+        except Exception as e:
+            logging.warning(f"初始化 Google Maps client 失敗: {e}。Google Maps 工具將無法運作。")
+            gmaps = None  # Ensure gmaps is None if initialization fails
+    return gmaps
 
 
 # --- Tool Definitions ---
@@ -55,12 +64,13 @@ def search_Maps(query: str, location: str = "25.0553, 121.6134") -> str:
     """
     在 Google Maps 上根據查詢和經緯度搜尋地點，並回傳最多 8 個結果的列表。
     """
-    if not gmaps:
-        return json.dumps({"error": "Google Maps API 未被正確初始化。請檢查 API 金鑰設定。"})
+    client = get_gmaps_client()
+    if not client:
+        return json.dumps({"error": "Google Maps API 未被正確初始化。請檢查 API 金鑰設定。"}, ensure_ascii=False)
 
     logging.info(f"Searching Google Maps API with query: '{query}' near {location}")
     try:
-        places_result = gmaps.places(
+        places_result = client.places(
             query=query,
             language='zh-TW',
             location=location,
@@ -91,7 +101,7 @@ def search_Maps(query: str, location: str = "25.0553, 121.6134") -> str:
 
         if not results_to_return:
             logging.info(f"No results found for query: '{query}'")
-            return json.dumps({"message": "很抱歉，在附近找不到符合條件的店家。"})
+            return json.dumps({"message": "很抱歉，在附近找不到符合條件的店家。"}, ensure_ascii=False)
 
         logging.info(f"Found {len(results_to_return)} results for query: '{query}'")
         result_json = json.dumps(results_to_return, ensure_ascii=False)
@@ -100,10 +110,10 @@ def search_Maps(query: str, location: str = "25.0553, 121.6134") -> str:
 
     except googlemaps.exceptions.ApiError as e:
         logging.error(f"Google Maps API error: {e}", exc_info=True)
-        return json.dumps({"error": f"API 錯誤: {e.status}"})
+        return json.dumps({"error": f"API 錯誤: {e.status}"}, ensure_ascii=False)
     except Exception as e:
         logging.error(f"Unknown error during Google Maps search: {e}", exc_info=True)
-        return json.dumps({"error": "搜尋時發生未知錯誤。"})
+        return json.dumps({"error": "搜尋時發生未知錯誤。"}, ensure_ascii=False)
 
 
 @tool
@@ -112,7 +122,7 @@ def create_google_form(title: str, description: str, menu_items: list) -> str:
     建立一個新的 Google 表單用於訂購，並將其連結到一個新的 Google Sheet。
     """
     if not all([forms_service, drive_service, gspread_client]):
-        return json.dumps({"error": "Google API 服務未被正確初始化。請檢查憑證檔案。"})
+        return json.dumps({"error": "Google API 服務未被正確初始化。請檢查憑證檔案。"}, ensure_ascii=False)
 
     try:
         logging.info(f"Creating new Google Sheet with title: '{title} - 訂單回應'")
