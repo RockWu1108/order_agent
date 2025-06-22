@@ -1,60 +1,56 @@
+from typing import Literal
 from graph.state import AgentState
-from langchain_core.messages import AIMessage
-import json
 
-
-# --- Conditional Edge Functions ---
-# These functions direct the flow of the graph based on the current state.
-
-def should_continue(state: AgentState) -> str:
+def master_router(state: AgentState) -> Literal["action", "recommend", "create_form", "human", "end"]:
     """
-    Decides the next step after the main LLM call.
+    一個統一的路由器，作為 agent 節點之後唯一的決策點。
     """
+    # 獲取模型最新的回應
     last_message = state["messages"][-1]
 
-    # If the model explicitly decides to end, terminate.
-    if "FINISH" in last_message.content:
-        return "end"
-
-    # If the model has generated tool calls, execute them.
+    # 情況一：如果模型決定呼叫工具
     if last_message.tool_calls:
-        # Here we add logic to intercept specific tool calls and route them
-        # to our custom nodes instead of the generic 'action' node.
-        if last_message.tool_calls[0]['name'] == 'search_google_maps':
-            return "recommend"
+        # 如果是建立訂單的工具
+        if any(call.name == "create_order_form" for call in last_message.tool_calls):
+            return "create_form"
+        # 如果是其他工具 (例如 google_search)
         return "action"
 
-    # Otherwise, the model is asking for more input or just responding.
+    # 情況二：如果模型沒有呼叫工具，而是回覆文字
+    else:
+        # 檢查是否已收集到足夠資訊可以推薦餐廳
+        # 並且尚未給出推薦
+        if state.get("location") and state.get("food_type") and not state.get("recommendations"):
+            return "recommend"
+
+        # 在所有其他情況下，模型都是在向使用者提問
+        # 因此我們應該暫停，等待使用者輸入
+        return "human"
+
+
+def route_to_recommendations(state: AgentState) -> Literal["get_menu", "human"]:
+    """
+    這個函式在提供推薦後，用來決定下一步。
+    (在新的簡化流程中，這個函式目前不會被使用，但予以保留)
+    """
+    last_human_message = ""
+    for message in reversed(state['messages']):
+        if message.type == 'human':
+            last_human_message = message.content
+            break
+
+    if "menu" in last_human_message.lower() or "菜單" in last_human_message:
+        return "get_menu"
     return "human"
 
 
-def route_to_recommendations(state: AgentState) -> str:
+def route_after_form_creation(state: AgentState) -> Literal["schedule_task", "end"]:
     """
-    Decides where to go after providing restaurant recommendations.
+    在建立表單後，決定是否要安排摘要任務。
     """
-    # After providing recommendations, we always wait for the user's response.
-    return "human"
-
-
-def route_after_recommendations(state: AgentState) -> str:
-    """
-    After the user has selected a restaurant and the agent has menu info,
-    decide whether to proceed with form creation.
-    """
-    if state.get("menu") and state.get("selected_restaurant"):
-        return "create_form"
-    return "continue"
-
-
-def route_after_form_creation(state: AgentState) -> str:
-    """
-    After attempting to create a Google Form, decide whether to schedule
-    the summary task.
-    """
-    # Check if a form_url was successfully added to the state.
-    if state.get("form_url"):
+    if state.get("order_form_url"):
         return "schedule_task"
     else:
-        # If form creation failed, we end the flow.
-        # The create_order_form node should have already added an error message.
+        # 如果表單URL不存在，說明建立失敗，直接結束
         return "end"
+

@@ -10,9 +10,7 @@ from graph.nodes import (
     finish_node,
 )
 from .conditional_edges import (
-    should_continue,
-    route_to_recommendations,
-    route_after_recommendations,
+    master_router,  # 引用新的中央路由器
     route_after_form_creation
 )
 
@@ -24,7 +22,7 @@ builder = StateGraph(AgentState)
 # 1. Define the Nodes
 builder.add_node("agent", call_model)
 builder.add_node("action", call_tool)
-builder.add_node("human", human_input_node)
+builder.add_node("human", human_input_node) # 讓流程暫停，等待使用者輸入的節點
 builder.add_node("recommend_restaurants", provide_recommendations)
 builder.add_node("create_order_form", create_order_form)
 builder.add_node("schedule_summary_task", schedule_summary_task)
@@ -35,53 +33,34 @@ builder.set_entry_point("agent")
 
 # 3. Define the Edges
 
-# Conditional edge after the main agent decides the next step
+# 從 agent 節點出發，只使用 master_router 這一個統一的條件判斷
 builder.add_conditional_edges(
     "agent",
-    should_continue,
+    master_router,
     {
         "action": "action",
-        "recommend": "recommend_restaurants", # New route to our custom recommendation node
-        "human": "human",
+        "recommend": "recommend_restaurants",
+        "create_form": "create_order_form",
+        "human": "human",  # 當需要使用者輸入時，流程會導向 human 節點並暫停
         "end": END,
     },
 )
 
-# After a tool is called, go back to the main agent to process the results
+# 執行工具後，回到 agent 重新思考
 builder.add_edge("action", "agent")
 
-# After getting human input, go back to the agent
-builder.add_edge("human", "agent")
+# 提供推薦後，流程應暫停，等待使用者從列表中選擇
+builder.add_edge("recommend_restaurants", "human")
 
-# Conditional edge to decide what to do after providing recommendations
-builder.add_conditional_edges(
-    "recommend_restaurants",
-    route_to_recommendations,
-    {
-        "get_menu": "agent",  # Go back to agent to find the menu
-        "human": "human"      # Go back to human for clarification
-    }
-)
-
-# After getting the menu and the user confirms, create the form
-builder.add_conditional_edges(
-    "agent", # This edge now comes from the main agent node
-    route_after_recommendations,
-    {
-        "create_form": "create_order_form",
-        "continue": "agent" # Default to continue conversation
-    }
-)
-
-# After creating the form, schedule the background task
+# 建立訂單後，進行下一步判斷 (安排摘要任務或結束)
 builder.add_conditional_edges(
     "create_order_form",
     route_after_form_creation,
     {
         "schedule_task": "schedule_summary_task",
-        "end": "finish" # If form creation fails, end.
+        "end": "finish"
     }
 )
 
-# After scheduling, the process is finished for now.
+# 安排任務後，結束流程
 builder.add_edge("schedule_summary_task", "finish")

@@ -29,6 +29,8 @@ memory = stack.enter_context(SqliteSaver.from_conn_string(db_path))
 atexit.register(stack.close)
 
 graph = builder.compile(checkpointer=memory)
+# 畫圖
+graph.get_graph().draw_mermaid_png(output_file_path="graph.png")
 
 
 # --- Helper Functions ---
